@@ -15,15 +15,15 @@ Usage of ./tts:
 
 ```bash
 export KYUTAI_TTS_APIKEY="public_token"
-echo "Hello! My name is Bob Kelso. Guess who has two thumbs and doesn't care?" | ./tts -server "ws://127.0.0.1:8080"
+echo "Hello! My name is Bob Kelso. Guess who has two thumbs and doesn't care?" | ./tts
 ```
 
 ```bash
 export KYUTAI_TTS_APIKEY="public_token"
-./tts -server "ws://127.0.0.1:8080" -input "speech.txt" -wordspersecond 10 -output "speech.wav"
+./tts -server "ws://127.0.0.1:8081" -input "speech.txt" -output "speech.wav"
 ```
 
 ```bash
 export KYUTAI_TTS_APIKEY="public_token"
-echo "Hello! My name is Bob Kelso. Guess who has two thumbs and doesn't care?" | ./tts -server "ws://127.0.0.1:8080" -input "-" -output "-" | ffmpeg -hide_banner -loglevel error -y -f f32le -ar 24000 -ac 1 -i pipe: output.opus
+echo "Hello! My name is Bob Kelso. Guess who has two thumbs and doesn't care?" | ./tts -server "ws://127.0.0.1:8081" -input "-"  -wordspersecond 10 -output "-" | ffmpeg -hide_banner -loglevel error -y -f f32le -ar 24000 -ac 1 -i pipe: output.opus
 ```
