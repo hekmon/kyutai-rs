@@ -9,6 +9,7 @@ require (
 	github.com/go-audio/transforms v0.0.0-20180121090939-51830ccc35a5
 	github.com/go-audio/wav v1.1.0
 	github.com/hekmon/kyutai-rs v1.0.0
+	golang.org/x/time v0.14.0
 )
 
 require (

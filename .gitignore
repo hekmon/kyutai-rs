@@ -30,3 +30,9 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Dev
+clients/tts/tts
+clients/tts/tts.exe
+clients/tts/output.wav
+clients/tts/output.opus
