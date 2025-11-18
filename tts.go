@@ -12,6 +12,11 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+const (
+	TTSSampleRate  = 24_000
+	TTSNumChannels = 1
+)
+
 type TTSConfig struct {
 	URL    string
 	APIKey string
@@ -124,7 +129,7 @@ func (ttsc *TTSConnection) writer() (err error) {
 }
 
 func (ttsc *TTSConnection) reader() (err error) {
-	defer close(ttsc.readerChan) // close chan when exiting to inform client we are done
+	defer close(ttsc.readerChan) // close chan when exiting to inform user we are done
 	var (
 		msgType           websocket.MessageType
 		payload, leftover []byte
