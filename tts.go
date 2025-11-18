@@ -57,6 +57,7 @@ func (client *TTSClient) Connect(ctx context.Context) (ttsc TTSConnection, err e
 	}
 	// Prepare the channels
 	ttsc.writerChan = make(chan string)
+	ttsc.readerChan = make(chan PackMessage)
 	// Start workers
 	ttsc.workers, ttsc.workersCtx = errgroup.WithContext(ctx)
 	ttsc.workers.Go(ttsc.writer)
@@ -69,10 +70,15 @@ type TTSConnection struct {
 	workers    *errgroup.Group
 	workersCtx context.Context
 	writerChan chan string
+	readerChan chan PackMessage
 }
 
 func (ttsc *TTSConnection) GetWriteChan() chan<- string {
 	return ttsc.writerChan
+}
+
+func (ttsc *TTSConnection) GetReadChan() <-chan PackMessage {
+	return ttsc.readerChan
 }
 
 func (ttsc *TTSConnection) writer() (err error) {
@@ -106,44 +112,53 @@ func (ttsc *TTSConnection) writer() (err error) {
 				err = fmt.Errorf("failed to write message into the websocket connection: %w", err)
 				return
 			}
-			// exit if end of stream
+			// exit if end of user input
 			if !open {
 				return
 			}
 		case <-ttsc.workersCtx.Done():
+			close(ttsc.writerChan) // avoid blocking user for nothing
 			return
 		}
 	}
 }
 
 func (ttsc *TTSConnection) reader() (err error) {
+	defer close(ttsc.readerChan) // close chan when exiting to inform client we are done
 	var (
 		msgType           websocket.MessageType
 		payload, leftover []byte
 		msgPack           PackMessage
 	)
 	for {
+		// Read a message on the websocket connection
 		if msgType, payload, err = ttsc.conn.Read(ttsc.workersCtx); err != nil {
 			var ce websocket.CloseError
 			if errors.As(err, &ce) {
 				switch ce.Code {
-
+				case websocket.StatusNoStatusRcvd:
+					// regular close from the server
+					err = nil
 				}
 			}
 			return
 		}
+		// Act based on message
 		switch msgType {
 		case websocket.MessageText:
-			// Handle text messages (e.g., status updates)
-			fmt.Printf("Received text message: %s\n", string(payload))
+			return fmt.Errorf("received an unexpected text message: %s", string(payload))
 		case websocket.MessageBinary:
-			// Handle binary messages (e.g., audio data)
-			fmt.Printf("Received binary message of length: %d\n", len(payload))
 			if leftover, err = msgPack.UnmarshalMsg(payload); err != nil {
 				err = fmt.Errorf("failed to unmarshal the message pack: %w", err)
 				return
 			}
-			fmt.Printf("Data received: %s (leftover: %d)\n", msgPack.Type, len(leftover))
+			if len(leftover) > 0 {
+				err = fmt.Errorf("unexpected data after unmarshaling '%s' type message: %d bytes",
+					msgPack.Type, len(leftover),
+				)
+				return
+			}
+			ttsc.readerChan <- msgPack
 		default:
 			return fmt.Errorf("unexpected websocket message type: %d", msgType)
 		}
