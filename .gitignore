@@ -33,6 +33,3 @@ go.work.sum
 
 # Dev
 clients/**
-## msgpack generate
-*_gen.go
-*_gen_test.go
