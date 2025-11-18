@@ -76,13 +76,38 @@ func (ttsc *TTSConnection) GetWriteChan() chan<- string {
 }
 
 func (ttsc *TTSConnection) writer() (err error) {
-	var input string
+	var (
+		input   string
+		open    bool
+		payload []byte
+	)
 	for {
 		select {
-		case input = <-ttsc.writerChan:
-			err = ttsc.conn.Write(ttsc.workersCtx, websocket.MessageText, []byte(input))
+		case input, open = <-ttsc.writerChan:
+			// Prepare the pack message
+			var msg PackMessage
+			if open {
+				msg = PackMessage{
+					Type: PackMessageTypeText,
+					Text: input,
+				}
+			} else {
+				msg = PackMessage{
+					Type: PackMessageTypeEoS,
+				}
+			}
+			// Send the msg
+			if payload, err = msg.MarshalMsg(nil); err != nil {
+				err = fmt.Errorf("failed to marshal message pack: %w", err)
+				return
+			}
+			err = ttsc.conn.Write(ttsc.workersCtx, websocket.MessageBinary, payload)
 			if err != nil {
 				err = fmt.Errorf("failed to write message into the websocket connection: %w", err)
+				return
+			}
+			// exit if end of stream
+			if !open {
 				return
 			}
 		case <-ttsc.workersCtx.Done():
@@ -93,11 +118,18 @@ func (ttsc *TTSConnection) writer() (err error) {
 
 func (ttsc *TTSConnection) reader() (err error) {
 	var (
-		msgType websocket.MessageType
-		payload []byte
+		msgType           websocket.MessageType
+		payload, leftover []byte
+		msgPack           PackMessage
 	)
 	for {
 		if msgType, payload, err = ttsc.conn.Read(ttsc.workersCtx); err != nil {
+			var ce websocket.CloseError
+			if errors.As(err, &ce) {
+				switch ce.Code {
+
+				}
+			}
 			return
 		}
 		switch msgType {
@@ -107,6 +139,11 @@ func (ttsc *TTSConnection) reader() (err error) {
 		case websocket.MessageBinary:
 			// Handle binary messages (e.g., audio data)
 			fmt.Printf("Received binary message of length: %d\n", len(payload))
+			if leftover, err = msgPack.UnmarshalMsg(payload); err != nil {
+				err = fmt.Errorf("failed to unmarshal the message pack: %w", err)
+				return
+			}
+			fmt.Printf("Data received: %s (leftover: %d)\n", msgPack.Type, len(leftover))
 		default:
 			return fmt.Errorf("unexpected websocket message type: %d", msgType)
 		}
