@@ -32,6 +32,7 @@ go.work.sum
 # .vscode/
 
 # Dev
+clients/**
 ## msgpack generate
 *_gen.go
 *_gen_test.go

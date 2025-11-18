@@ -1,9 +1,9 @@
-package main
+//go:generate msgp
+
+package krs
 
 // Message types for Kyutai TTS WebSocket protocol
 // Generate MessagePack code with: go generate
-
-//go:generate msgp
 
 // TextMessage sends text to TTS server
 type TextMessage struct {
