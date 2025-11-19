@@ -104,24 +104,26 @@ func (ttsc *TTSConnection) writer() (err error) {
 		select {
 		case input, open = <-ttsc.writerChan:
 			// Prepare the pack message
-			var msg PackMessage
 			if open {
-				msg = PackMessage{
+				msg := PackMessageText{
 					Type: PackMessageTypeText,
 					Text: input,
 				}
+				if payload, err = msg.MarshalMsg(nil); err != nil {
+					err = fmt.Errorf("failed to marshal message pack: %w", err)
+					return
+				}
 			} else {
-				msg = PackMessage{
+				msg := PackMessageHeader{
 					Type: PackMessageTypeEoS,
+				}
+				if payload, err = msg.MarshalMsg(nil); err != nil {
+					err = fmt.Errorf("failed to marshal message pack: %w", err)
+					return
 				}
 			}
 			// Send the msg
-			if payload, err = msg.MarshalMsg(nil); err != nil {
-				err = fmt.Errorf("failed to marshal message pack: %w", err)
-				return
-			}
-			err = ttsc.conn.Write(ttsc.workersCtx, websocket.MessageBinary, payload)
-			if err != nil {
+			if err = ttsc.conn.Write(ttsc.workersCtx, websocket.MessageBinary, payload); err != nil {
 				err = fmt.Errorf("failed to write message into the websocket connection: %w", err)
 				return
 			}
@@ -137,9 +139,9 @@ func (ttsc *TTSConnection) writer() (err error) {
 
 func (ttsc *TTSConnection) reader() (err error) {
 	var (
-		msgType           websocket.MessageType
-		payload, leftover []byte
-		msgPack           PackMessage
+		msgType websocket.MessageType
+		payload []byte
+		msgPack PackMessageHeader
 	)
 	for {
 		// Read a message on the websocket connection
@@ -158,17 +160,30 @@ func (ttsc *TTSConnection) reader() (err error) {
 		case websocket.MessageText:
 			return fmt.Errorf("received an unexpected text message: %s", string(payload))
 		case websocket.MessageBinary:
-			if leftover, err = msgPack.UnmarshalMsg(payload); err != nil {
+			// Identify the payload
+			if _, err = msgPack.UnmarshalMsg(payload); err != nil {
 				err = fmt.Errorf("failed to unmarshal the message pack: %w", err)
 				return
 			}
-			if len(leftover) > 0 {
-				err = fmt.Errorf("unexpected data after unmarshaling '%s' type message: %d bytes",
-					msgPack.Type, len(leftover),
-				)
-				return
+			// Unmarshal in the correct type and send it
+			switch msgPack.Type {
+			case PackMessageTypeText:
+				var msgPackText PackMessageText
+				if _, err = msgPackText.UnmarshalMsg(payload); err != nil {
+					err = fmt.Errorf("failed to unmarshal the message pack: %w", err)
+					return
+				}
+				ttsc.readerChan <- msgPackText
+			case PackMessageTypeAudio:
+				var msgPackAudio PackMessageAudio
+				if _, err = msgPackAudio.UnmarshalMsg(payload); err != nil {
+					err = fmt.Errorf("failed to unmarshal the message pack: %w", err)
+					return
+				}
+				ttsc.readerChan <- msgPackAudio
+			default:
+				return fmt.Errorf("unexpected message pack type identifier: %s", msgPack.Type)
 			}
-			ttsc.readerChan <- msgPack
 		default:
 			return fmt.Errorf("unexpected websocket message type: %d", msgType)
 		}

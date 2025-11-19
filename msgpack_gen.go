@@ -7,7 +7,290 @@ import (
 )
 
 // DecodeMsg implements msgp.Decodable
-func (z *PackMarker) DecodeMsg(dc *msgp.Reader) (err error) {
+func (z *PackMessageAudio) DecodeMsg(dc *msgp.Reader) (err error) {
+	var field []byte
+	_ = field
+	var zb0001 uint32
+	zb0001, err = dc.ReadMapHeader()
+	if err != nil {
+		err = msgp.WrapError(err)
+		return
+	}
+	for zb0001 > 0 {
+		zb0001--
+		field, err = dc.ReadMapKeyPtr()
+		if err != nil {
+			err = msgp.WrapError(err)
+			return
+		}
+		switch msgp.UnsafeString(field) {
+		case "type":
+			{
+				var zb0002 string
+				zb0002, err = dc.ReadString()
+				if err != nil {
+					err = msgp.WrapError(err, "Type")
+					return
+				}
+				z.Type = PackMessageType(zb0002)
+			}
+		case "pcm":
+			var zb0003 uint32
+			zb0003, err = dc.ReadArrayHeader()
+			if err != nil {
+				err = msgp.WrapError(err, "PCM")
+				return
+			}
+			if cap(z.PCM) >= int(zb0003) {
+				z.PCM = (z.PCM)[:zb0003]
+			} else {
+				z.PCM = make([]float32, zb0003)
+			}
+			for za0001 := range z.PCM {
+				z.PCM[za0001], err = dc.ReadFloat32()
+				if err != nil {
+					err = msgp.WrapError(err, "PCM", za0001)
+					return
+				}
+			}
+		default:
+			err = dc.Skip()
+			if err != nil {
+				err = msgp.WrapError(err)
+				return
+			}
+		}
+	}
+	return
+}
+
+// EncodeMsg implements msgp.Encodable
+func (z *PackMessageAudio) EncodeMsg(en *msgp.Writer) (err error) {
+	// map header, size 2
+	// write "type"
+	err = en.Append(0x82, 0xa4, 0x74, 0x79, 0x70, 0x65)
+	if err != nil {
+		return
+	}
+	err = en.WriteString(string(z.Type))
+	if err != nil {
+		err = msgp.WrapError(err, "Type")
+		return
+	}
+	// write "pcm"
+	err = en.Append(0xa3, 0x70, 0x63, 0x6d)
+	if err != nil {
+		return
+	}
+	err = en.WriteArrayHeader(uint32(len(z.PCM)))
+	if err != nil {
+		err = msgp.WrapError(err, "PCM")
+		return
+	}
+	for za0001 := range z.PCM {
+		err = en.WriteFloat32(z.PCM[za0001])
+		if err != nil {
+			err = msgp.WrapError(err, "PCM", za0001)
+			return
+		}
+	}
+	return
+}
+
+// MarshalMsg implements msgp.Marshaler
+func (z *PackMessageAudio) MarshalMsg(b []byte) (o []byte, err error) {
+	o = msgp.Require(b, z.Msgsize())
+	// map header, size 2
+	// string "type"
+	o = append(o, 0x82, 0xa4, 0x74, 0x79, 0x70, 0x65)
+	o = msgp.AppendString(o, string(z.Type))
+	// string "pcm"
+	o = append(o, 0xa3, 0x70, 0x63, 0x6d)
+	o = msgp.AppendArrayHeader(o, uint32(len(z.PCM)))
+	for za0001 := range z.PCM {
+		o = msgp.AppendFloat32(o, z.PCM[za0001])
+	}
+	return
+}
+
+// UnmarshalMsg implements msgp.Unmarshaler
+func (z *PackMessageAudio) UnmarshalMsg(bts []byte) (o []byte, err error) {
+	var field []byte
+	_ = field
+	var zb0001 uint32
+	zb0001, bts, err = msgp.ReadMapHeaderBytes(bts)
+	if err != nil {
+		err = msgp.WrapError(err)
+		return
+	}
+	for zb0001 > 0 {
+		zb0001--
+		field, bts, err = msgp.ReadMapKeyZC(bts)
+		if err != nil {
+			err = msgp.WrapError(err)
+			return
+		}
+		switch msgp.UnsafeString(field) {
+		case "type":
+			{
+				var zb0002 string
+				zb0002, bts, err = msgp.ReadStringBytes(bts)
+				if err != nil {
+					err = msgp.WrapError(err, "Type")
+					return
+				}
+				z.Type = PackMessageType(zb0002)
+			}
+		case "pcm":
+			var zb0003 uint32
+			zb0003, bts, err = msgp.ReadArrayHeaderBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "PCM")
+				return
+			}
+			if cap(z.PCM) >= int(zb0003) {
+				z.PCM = (z.PCM)[:zb0003]
+			} else {
+				z.PCM = make([]float32, zb0003)
+			}
+			for za0001 := range z.PCM {
+				z.PCM[za0001], bts, err = msgp.ReadFloat32Bytes(bts)
+				if err != nil {
+					err = msgp.WrapError(err, "PCM", za0001)
+					return
+				}
+			}
+		default:
+			bts, err = msgp.Skip(bts)
+			if err != nil {
+				err = msgp.WrapError(err)
+				return
+			}
+		}
+	}
+	o = bts
+	return
+}
+
+// Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
+func (z *PackMessageAudio) Msgsize() (s int) {
+	s = 1 + 5 + msgp.StringPrefixSize + len(string(z.Type)) + 4 + msgp.ArrayHeaderSize + (len(z.PCM) * (msgp.Float32Size))
+	return
+}
+
+// DecodeMsg implements msgp.Decodable
+func (z *PackMessageHeader) DecodeMsg(dc *msgp.Reader) (err error) {
+	var field []byte
+	_ = field
+	var zb0001 uint32
+	zb0001, err = dc.ReadMapHeader()
+	if err != nil {
+		err = msgp.WrapError(err)
+		return
+	}
+	for zb0001 > 0 {
+		zb0001--
+		field, err = dc.ReadMapKeyPtr()
+		if err != nil {
+			err = msgp.WrapError(err)
+			return
+		}
+		switch msgp.UnsafeString(field) {
+		case "type":
+			{
+				var zb0002 string
+				zb0002, err = dc.ReadString()
+				if err != nil {
+					err = msgp.WrapError(err, "Type")
+					return
+				}
+				z.Type = PackMessageType(zb0002)
+			}
+		default:
+			err = dc.Skip()
+			if err != nil {
+				err = msgp.WrapError(err)
+				return
+			}
+		}
+	}
+	return
+}
+
+// EncodeMsg implements msgp.Encodable
+func (z PackMessageHeader) EncodeMsg(en *msgp.Writer) (err error) {
+	// map header, size 1
+	// write "type"
+	err = en.Append(0x81, 0xa4, 0x74, 0x79, 0x70, 0x65)
+	if err != nil {
+		return
+	}
+	err = en.WriteString(string(z.Type))
+	if err != nil {
+		err = msgp.WrapError(err, "Type")
+		return
+	}
+	return
+}
+
+// MarshalMsg implements msgp.Marshaler
+func (z PackMessageHeader) MarshalMsg(b []byte) (o []byte, err error) {
+	o = msgp.Require(b, z.Msgsize())
+	// map header, size 1
+	// string "type"
+	o = append(o, 0x81, 0xa4, 0x74, 0x79, 0x70, 0x65)
+	o = msgp.AppendString(o, string(z.Type))
+	return
+}
+
+// UnmarshalMsg implements msgp.Unmarshaler
+func (z *PackMessageHeader) UnmarshalMsg(bts []byte) (o []byte, err error) {
+	var field []byte
+	_ = field
+	var zb0001 uint32
+	zb0001, bts, err = msgp.ReadMapHeaderBytes(bts)
+	if err != nil {
+		err = msgp.WrapError(err)
+		return
+	}
+	for zb0001 > 0 {
+		zb0001--
+		field, bts, err = msgp.ReadMapKeyZC(bts)
+		if err != nil {
+			err = msgp.WrapError(err)
+			return
+		}
+		switch msgp.UnsafeString(field) {
+		case "type":
+			{
+				var zb0002 string
+				zb0002, bts, err = msgp.ReadStringBytes(bts)
+				if err != nil {
+					err = msgp.WrapError(err, "Type")
+					return
+				}
+				z.Type = PackMessageType(zb0002)
+			}
+		default:
+			bts, err = msgp.Skip(bts)
+			if err != nil {
+				err = msgp.WrapError(err)
+				return
+			}
+		}
+	}
+	o = bts
+	return
+}
+
+// Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
+func (z PackMessageHeader) Msgsize() (s int) {
+	s = 1 + 5 + msgp.StringPrefixSize + len(string(z.Type))
+	return
+}
+
+// DecodeMsg implements msgp.Decodable
+func (z *PackMessageMarker) DecodeMsg(dc *msgp.Reader) (err error) {
 	var field []byte
 	_ = field
 	var zb0001 uint32
@@ -52,7 +335,7 @@ func (z *PackMarker) DecodeMsg(dc *msgp.Reader) (err error) {
 }
 
 // EncodeMsg implements msgp.Encodable
-func (z PackMarker) EncodeMsg(en *msgp.Writer) (err error) {
+func (z PackMessageMarker) EncodeMsg(en *msgp.Writer) (err error) {
 	// map header, size 2
 	// write "type"
 	err = en.Append(0x82, 0xa4, 0x74, 0x79, 0x70, 0x65)
@@ -78,7 +361,7 @@ func (z PackMarker) EncodeMsg(en *msgp.Writer) (err error) {
 }
 
 // MarshalMsg implements msgp.Marshaler
-func (z PackMarker) MarshalMsg(b []byte) (o []byte, err error) {
+func (z PackMessageMarker) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
 	// map header, size 2
 	// string "type"
@@ -91,7 +374,7 @@ func (z PackMarker) MarshalMsg(b []byte) (o []byte, err error) {
 }
 
 // UnmarshalMsg implements msgp.Unmarshaler
-func (z *PackMarker) UnmarshalMsg(bts []byte) (o []byte, err error) {
+func (z *PackMessageMarker) UnmarshalMsg(bts []byte) (o []byte, err error) {
 	var field []byte
 	_ = field
 	var zb0001 uint32
@@ -137,13 +420,235 @@ func (z *PackMarker) UnmarshalMsg(bts []byte) (o []byte, err error) {
 }
 
 // Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
-func (z PackMarker) Msgsize() (s int) {
+func (z PackMessageMarker) Msgsize() (s int) {
 	s = 1 + 5 + msgp.StringPrefixSize + len(string(z.Type)) + 3 + msgp.IntSize
 	return
 }
 
 // DecodeMsg implements msgp.Decodable
-func (z *PackMessage) DecodeMsg(dc *msgp.Reader) (err error) {
+func (z *PackMessageStep) DecodeMsg(dc *msgp.Reader) (err error) {
+	var field []byte
+	_ = field
+	var zb0001 uint32
+	zb0001, err = dc.ReadMapHeader()
+	if err != nil {
+		err = msgp.WrapError(err)
+		return
+	}
+	for zb0001 > 0 {
+		zb0001--
+		field, err = dc.ReadMapKeyPtr()
+		if err != nil {
+			err = msgp.WrapError(err)
+			return
+		}
+		switch msgp.UnsafeString(field) {
+		case "type":
+			{
+				var zb0002 string
+				zb0002, err = dc.ReadString()
+				if err != nil {
+					err = msgp.WrapError(err, "Type")
+					return
+				}
+				z.Type = PackMessageType(zb0002)
+			}
+		case "prs":
+			var zb0003 uint32
+			zb0003, err = dc.ReadArrayHeader()
+			if err != nil {
+				err = msgp.WrapError(err, "Prs")
+				return
+			}
+			if cap(z.Prs) >= int(zb0003) {
+				z.Prs = (z.Prs)[:zb0003]
+			} else {
+				z.Prs = make([]float32, zb0003)
+			}
+			for za0001 := range z.Prs {
+				z.Prs[za0001], err = dc.ReadFloat32()
+				if err != nil {
+					err = msgp.WrapError(err, "Prs", za0001)
+					return
+				}
+			}
+		case "step_idx":
+			z.StepIndex, err = dc.ReadInt()
+			if err != nil {
+				err = msgp.WrapError(err, "StepIndex")
+				return
+			}
+		case "buffered_pcm":
+			z.BufferedPCM, err = dc.ReadInt()
+			if err != nil {
+				err = msgp.WrapError(err, "BufferedPCM")
+				return
+			}
+		default:
+			err = dc.Skip()
+			if err != nil {
+				err = msgp.WrapError(err)
+				return
+			}
+		}
+	}
+	return
+}
+
+// EncodeMsg implements msgp.Encodable
+func (z *PackMessageStep) EncodeMsg(en *msgp.Writer) (err error) {
+	// map header, size 4
+	// write "type"
+	err = en.Append(0x84, 0xa4, 0x74, 0x79, 0x70, 0x65)
+	if err != nil {
+		return
+	}
+	err = en.WriteString(string(z.Type))
+	if err != nil {
+		err = msgp.WrapError(err, "Type")
+		return
+	}
+	// write "prs"
+	err = en.Append(0xa3, 0x70, 0x72, 0x73)
+	if err != nil {
+		return
+	}
+	err = en.WriteArrayHeader(uint32(len(z.Prs)))
+	if err != nil {
+		err = msgp.WrapError(err, "Prs")
+		return
+	}
+	for za0001 := range z.Prs {
+		err = en.WriteFloat32(z.Prs[za0001])
+		if err != nil {
+			err = msgp.WrapError(err, "Prs", za0001)
+			return
+		}
+	}
+	// write "step_idx"
+	err = en.Append(0xa8, 0x73, 0x74, 0x65, 0x70, 0x5f, 0x69, 0x64, 0x78)
+	if err != nil {
+		return
+	}
+	err = en.WriteInt(z.StepIndex)
+	if err != nil {
+		err = msgp.WrapError(err, "StepIndex")
+		return
+	}
+	// write "buffered_pcm"
+	err = en.Append(0xac, 0x62, 0x75, 0x66, 0x66, 0x65, 0x72, 0x65, 0x64, 0x5f, 0x70, 0x63, 0x6d)
+	if err != nil {
+		return
+	}
+	err = en.WriteInt(z.BufferedPCM)
+	if err != nil {
+		err = msgp.WrapError(err, "BufferedPCM")
+		return
+	}
+	return
+}
+
+// MarshalMsg implements msgp.Marshaler
+func (z *PackMessageStep) MarshalMsg(b []byte) (o []byte, err error) {
+	o = msgp.Require(b, z.Msgsize())
+	// map header, size 4
+	// string "type"
+	o = append(o, 0x84, 0xa4, 0x74, 0x79, 0x70, 0x65)
+	o = msgp.AppendString(o, string(z.Type))
+	// string "prs"
+	o = append(o, 0xa3, 0x70, 0x72, 0x73)
+	o = msgp.AppendArrayHeader(o, uint32(len(z.Prs)))
+	for za0001 := range z.Prs {
+		o = msgp.AppendFloat32(o, z.Prs[za0001])
+	}
+	// string "step_idx"
+	o = append(o, 0xa8, 0x73, 0x74, 0x65, 0x70, 0x5f, 0x69, 0x64, 0x78)
+	o = msgp.AppendInt(o, z.StepIndex)
+	// string "buffered_pcm"
+	o = append(o, 0xac, 0x62, 0x75, 0x66, 0x66, 0x65, 0x72, 0x65, 0x64, 0x5f, 0x70, 0x63, 0x6d)
+	o = msgp.AppendInt(o, z.BufferedPCM)
+	return
+}
+
+// UnmarshalMsg implements msgp.Unmarshaler
+func (z *PackMessageStep) UnmarshalMsg(bts []byte) (o []byte, err error) {
+	var field []byte
+	_ = field
+	var zb0001 uint32
+	zb0001, bts, err = msgp.ReadMapHeaderBytes(bts)
+	if err != nil {
+		err = msgp.WrapError(err)
+		return
+	}
+	for zb0001 > 0 {
+		zb0001--
+		field, bts, err = msgp.ReadMapKeyZC(bts)
+		if err != nil {
+			err = msgp.WrapError(err)
+			return
+		}
+		switch msgp.UnsafeString(field) {
+		case "type":
+			{
+				var zb0002 string
+				zb0002, bts, err = msgp.ReadStringBytes(bts)
+				if err != nil {
+					err = msgp.WrapError(err, "Type")
+					return
+				}
+				z.Type = PackMessageType(zb0002)
+			}
+		case "prs":
+			var zb0003 uint32
+			zb0003, bts, err = msgp.ReadArrayHeaderBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "Prs")
+				return
+			}
+			if cap(z.Prs) >= int(zb0003) {
+				z.Prs = (z.Prs)[:zb0003]
+			} else {
+				z.Prs = make([]float32, zb0003)
+			}
+			for za0001 := range z.Prs {
+				z.Prs[za0001], bts, err = msgp.ReadFloat32Bytes(bts)
+				if err != nil {
+					err = msgp.WrapError(err, "Prs", za0001)
+					return
+				}
+			}
+		case "step_idx":
+			z.StepIndex, bts, err = msgp.ReadIntBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "StepIndex")
+				return
+			}
+		case "buffered_pcm":
+			z.BufferedPCM, bts, err = msgp.ReadIntBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "BufferedPCM")
+				return
+			}
+		default:
+			bts, err = msgp.Skip(bts)
+			if err != nil {
+				err = msgp.WrapError(err)
+				return
+			}
+		}
+	}
+	o = bts
+	return
+}
+
+// Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
+func (z *PackMessageStep) Msgsize() (s int) {
+	s = 1 + 5 + msgp.StringPrefixSize + len(string(z.Type)) + 4 + msgp.ArrayHeaderSize + (len(z.Prs) * (msgp.Float32Size)) + 9 + msgp.IntSize + 13 + msgp.IntSize
+	return
+}
+
+// DecodeMsg implements msgp.Decodable
+func (z *PackMessageText) DecodeMsg(dc *msgp.Reader) (err error) {
 	var field []byte
 	_ = field
 	var zb0001 uint32
@@ -176,25 +681,6 @@ func (z *PackMessage) DecodeMsg(dc *msgp.Reader) (err error) {
 				err = msgp.WrapError(err, "Text")
 				return
 			}
-		case "pcm":
-			var zb0003 uint32
-			zb0003, err = dc.ReadArrayHeader()
-			if err != nil {
-				err = msgp.WrapError(err, "PCM")
-				return
-			}
-			if cap(z.PCM) >= int(zb0003) {
-				z.PCM = (z.PCM)[:zb0003]
-			} else {
-				z.PCM = make([]float32, zb0003)
-			}
-			for za0001 := range z.PCM {
-				z.PCM[za0001], err = dc.ReadFloat32()
-				if err != nil {
-					err = msgp.WrapError(err, "PCM", za0001)
-					return
-				}
-			}
 		default:
 			err = dc.Skip()
 			if err != nil {
@@ -207,114 +693,46 @@ func (z *PackMessage) DecodeMsg(dc *msgp.Reader) (err error) {
 }
 
 // EncodeMsg implements msgp.Encodable
-func (z *PackMessage) EncodeMsg(en *msgp.Writer) (err error) {
-	// check for omitted fields
-	zb0001Len := uint32(3)
-	var zb0001Mask uint8 /* 3 bits */
-	_ = zb0001Mask
-	if z.Text == "" {
-		zb0001Len--
-		zb0001Mask |= 0x2
-	}
-	if z.PCM == nil {
-		zb0001Len--
-		zb0001Mask |= 0x4
-	}
-	// variable map header, size zb0001Len
-	err = en.Append(0x80 | uint8(zb0001Len))
+func (z PackMessageText) EncodeMsg(en *msgp.Writer) (err error) {
+	// map header, size 2
+	// write "type"
+	err = en.Append(0x82, 0xa4, 0x74, 0x79, 0x70, 0x65)
 	if err != nil {
 		return
 	}
-
-	// skip if no fields are to be emitted
-	if zb0001Len != 0 {
-		// write "type"
-		err = en.Append(0xa4, 0x74, 0x79, 0x70, 0x65)
-		if err != nil {
-			return
-		}
-		err = en.WriteString(string(z.Type))
-		if err != nil {
-			err = msgp.WrapError(err, "Type")
-			return
-		}
-		if (zb0001Mask & 0x2) == 0 { // if not omitted
-			// write "text"
-			err = en.Append(0xa4, 0x74, 0x65, 0x78, 0x74)
-			if err != nil {
-				return
-			}
-			err = en.WriteString(z.Text)
-			if err != nil {
-				err = msgp.WrapError(err, "Text")
-				return
-			}
-		}
-		if (zb0001Mask & 0x4) == 0 { // if not omitted
-			// write "pcm"
-			err = en.Append(0xa3, 0x70, 0x63, 0x6d)
-			if err != nil {
-				return
-			}
-			err = en.WriteArrayHeader(uint32(len(z.PCM)))
-			if err != nil {
-				err = msgp.WrapError(err, "PCM")
-				return
-			}
-			for za0001 := range z.PCM {
-				err = en.WriteFloat32(z.PCM[za0001])
-				if err != nil {
-					err = msgp.WrapError(err, "PCM", za0001)
-					return
-				}
-			}
-		}
+	err = en.WriteString(string(z.Type))
+	if err != nil {
+		err = msgp.WrapError(err, "Type")
+		return
+	}
+	// write "text"
+	err = en.Append(0xa4, 0x74, 0x65, 0x78, 0x74)
+	if err != nil {
+		return
+	}
+	err = en.WriteString(z.Text)
+	if err != nil {
+		err = msgp.WrapError(err, "Text")
+		return
 	}
 	return
 }
 
 // MarshalMsg implements msgp.Marshaler
-func (z *PackMessage) MarshalMsg(b []byte) (o []byte, err error) {
+func (z PackMessageText) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// check for omitted fields
-	zb0001Len := uint32(3)
-	var zb0001Mask uint8 /* 3 bits */
-	_ = zb0001Mask
-	if z.Text == "" {
-		zb0001Len--
-		zb0001Mask |= 0x2
-	}
-	if z.PCM == nil {
-		zb0001Len--
-		zb0001Mask |= 0x4
-	}
-	// variable map header, size zb0001Len
-	o = append(o, 0x80|uint8(zb0001Len))
-
-	// skip if no fields are to be emitted
-	if zb0001Len != 0 {
-		// string "type"
-		o = append(o, 0xa4, 0x74, 0x79, 0x70, 0x65)
-		o = msgp.AppendString(o, string(z.Type))
-		if (zb0001Mask & 0x2) == 0 { // if not omitted
-			// string "text"
-			o = append(o, 0xa4, 0x74, 0x65, 0x78, 0x74)
-			o = msgp.AppendString(o, z.Text)
-		}
-		if (zb0001Mask & 0x4) == 0 { // if not omitted
-			// string "pcm"
-			o = append(o, 0xa3, 0x70, 0x63, 0x6d)
-			o = msgp.AppendArrayHeader(o, uint32(len(z.PCM)))
-			for za0001 := range z.PCM {
-				o = msgp.AppendFloat32(o, z.PCM[za0001])
-			}
-		}
-	}
+	// map header, size 2
+	// string "type"
+	o = append(o, 0x82, 0xa4, 0x74, 0x79, 0x70, 0x65)
+	o = msgp.AppendString(o, string(z.Type))
+	// string "text"
+	o = append(o, 0xa4, 0x74, 0x65, 0x78, 0x74)
+	o = msgp.AppendString(o, z.Text)
 	return
 }
 
 // UnmarshalMsg implements msgp.Unmarshaler
-func (z *PackMessage) UnmarshalMsg(bts []byte) (o []byte, err error) {
+func (z *PackMessageText) UnmarshalMsg(bts []byte) (o []byte, err error) {
 	var field []byte
 	_ = field
 	var zb0001 uint32
@@ -347,25 +765,6 @@ func (z *PackMessage) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				err = msgp.WrapError(err, "Text")
 				return
 			}
-		case "pcm":
-			var zb0003 uint32
-			zb0003, bts, err = msgp.ReadArrayHeaderBytes(bts)
-			if err != nil {
-				err = msgp.WrapError(err, "PCM")
-				return
-			}
-			if cap(z.PCM) >= int(zb0003) {
-				z.PCM = (z.PCM)[:zb0003]
-			} else {
-				z.PCM = make([]float32, zb0003)
-			}
-			for za0001 := range z.PCM {
-				z.PCM[za0001], bts, err = msgp.ReadFloat32Bytes(bts)
-				if err != nil {
-					err = msgp.WrapError(err, "PCM", za0001)
-					return
-				}
-			}
 		default:
 			bts, err = msgp.Skip(bts)
 			if err != nil {
@@ -379,8 +778,8 @@ func (z *PackMessage) UnmarshalMsg(bts []byte) (o []byte, err error) {
 }
 
 // Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
-func (z *PackMessage) Msgsize() (s int) {
-	s = 1 + 5 + msgp.StringPrefixSize + len(string(z.Type)) + 5 + msgp.StringPrefixSize + len(z.Text) + 4 + msgp.ArrayHeaderSize + (len(z.PCM) * (msgp.Float32Size))
+func (z PackMessageText) Msgsize() (s int) {
+	s = 1 + 5 + msgp.StringPrefixSize + len(string(z.Type)) + 5 + msgp.StringPrefixSize + len(z.Text)
 	return
 }
 
