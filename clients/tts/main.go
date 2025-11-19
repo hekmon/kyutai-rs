@@ -157,8 +157,8 @@ func writeWAVE(filename string, kyutaiTTSSamples []float32) (err error) {
 	// Create the raw buffer
 	audioBuffer := &audio.Float32Buffer{
 		Format: &audio.Format{
-			NumChannels: krs.TTSNumChannels,
-			SampleRate:  krs.TTSSampleRate,
+			NumChannels: krs.NumChannels,
+			SampleRate:  krs.SampleRate,
 		},
 		Data: kyutaiTTSSamples,
 	}

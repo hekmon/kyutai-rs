@@ -12,11 +12,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const (
-	TTSSampleRate  = 24_000
-	TTSNumChannels = 1
-)
-
 type TTSConfig struct {
 	URL    string
 	APIKey string
