@@ -136,7 +136,6 @@ func (ttsc *TTSConnection) writer() (err error) {
 }
 
 func (ttsc *TTSConnection) reader() (err error) {
-	defer close(ttsc.readerChan) // close chan when exiting to inform user we are done
 	var (
 		msgType           websocket.MessageType
 		payload, leftover []byte
@@ -146,12 +145,11 @@ func (ttsc *TTSConnection) reader() (err error) {
 		// Read a message on the websocket connection
 		if msgType, payload, err = ttsc.conn.Read(ttsc.workersCtx); err != nil {
 			var ce websocket.CloseError
-			if errors.As(err, &ce) {
-				switch ce.Code {
-				case websocket.StatusNoStatusRcvd:
-					// regular close from the server
-					err = nil
-				}
+			if errors.As(err, &ce) && ce.Code == websocket.StatusNoStatusRcvd {
+				// regular close from the server
+				err = nil
+				// close chan when exiting to inform user we are done
+				close(ttsc.readerChan)
 			}
 			return
 		}
