@@ -51,49 +51,27 @@ func main() {
 	fmt.Fprintln(os.Stderr, " connected.")
 
 	// Send the input text to the TTS server...
-	go sendInput(*input, *inputWordRate, ttsConn.GetWriteChan())
+	go sendInput(ttsConn.GetContext(), ttsConn.GetWriteChan(), *input, *inputWordRate)
 
 	// ...while reading the audio samples and processed text in return
-	var (
-		receivedMsgPack krs.PackMessage
-		ok              bool
-		audioSamples    []float32
-	)
-	for {
-		if receivedMsgPack, ok = <-ttsConn.GetReadChan(); !ok {
-			// End of server stream
-			fmt.Fprintln(os.Stderr)
-			break
-		}
-		switch receivedMsgPack.Type {
-		case krs.PackMessageTypeText:
-			fmt.Fprintf(os.Stderr, "%s ", receivedMsgPack.Text)
-		case krs.PackMessageTypeAudio:
-			if *output == "-" {
-				if err = binary.Write(os.Stdout, binary.LittleEndian, receivedMsgPack.PCM); err != nil {
-					panic(err)
-				}
-			} else {
-				audioSamples = append(audioSamples, receivedMsgPack.PCM...)
-			}
-		}
-	}
+	audioSamples := new([]float32)
+	go receiveOutput(ttsConn.GetContext(), ttsConn.GetReadChan(), audioSamples, *output == "-")
 
-	// Wait for properly closing of the connection
-	if err = ttsConn.Wait(); err != nil {
+	// Wait until the connection is done and collect error if any
+	if err = ttsConn.Done(); err != nil {
 		panic(err)
 	}
 
 	// Write the audio samples to a WAV file
 	if *output != "-" {
-		if err = writeWAVE(*output, audioSamples); err != nil {
+		if err = writeWAVE(*output, *audioSamples); err != nil {
 			panic(err)
 		}
 		fmt.Fprintf(os.Stderr, "\nAudio samples written to %q\n", *output)
 	}
 }
 
-func sendInput(input string, wordsPerSecond int, sender chan<- string) {
+func sendInput(ctx context.Context, sender chan<- string, input string, wordsPerSecond int) {
 	var err error
 	// Create the rate limiter
 	limiter := rate.NewLimiter(rate.Limit(wordsPerSecond), 1)
@@ -106,7 +84,13 @@ func sendInput(input string, wordsPerSecond int, sender chan<- string) {
 				if err = limiter.Wait(context.TODO()); err != nil {
 					panic(err)
 				}
-				sender <- word
+				select {
+				case <-ctx.Done():
+					// connection context canceled, stop using the sender channel
+					return
+				case sender <- word:
+					// actually send the word to the connection
+				}
 			}
 		}
 		if err = scanner.Err(); err != nil {
@@ -117,11 +101,50 @@ func sendInput(input string, wordsPerSecond int, sender chan<- string) {
 			if err = limiter.Wait(context.TODO()); err != nil {
 				panic(err)
 			}
-			sender <- word
+			select {
+			case <-ctx.Done():
+				// connection context canceled, stop using the sender channel
+				return
+			case sender <- word:
+				// actually send the word to the connection
+			}
 		}
 	}
-	// We have finished submitting text
+	// Signal the connection we have finished submitting text by closing the sender channel
 	close(sender)
+}
+
+func receiveOutput(ctx context.Context, receiver <-chan krs.PackMessage, audioSamples *[]float32, stdoutOutput bool) {
+	var (
+		receivedMsgPack krs.PackMessage
+		open            bool
+		err             error
+	)
+	for {
+		select {
+		case <-ctx.Done():
+			// connection context canceled, stop using the receiver channel
+			return
+		case receivedMsgPack, open = <-receiver:
+			if !open {
+				// End of server stream
+				fmt.Fprintln(os.Stderr)
+				return
+			}
+			switch receivedMsgPack.Type {
+			case krs.PackMessageTypeText:
+				fmt.Fprintf(os.Stderr, "%s ", receivedMsgPack.Text)
+			case krs.PackMessageTypeAudio:
+				if stdoutOutput {
+					if err = binary.Write(os.Stdout, binary.LittleEndian, receivedMsgPack.PCM); err != nil {
+						panic(err)
+					}
+				} else {
+					*audioSamples = append(*audioSamples, receivedMsgPack.PCM...)
+				}
+			}
+		}
+	}
 }
 
 func writeWAVE(filename string, kyutaiTTSSamples []float32) (err error) {
@@ -139,23 +162,24 @@ func writeWAVE(filename string, kyutaiTTSSamples []float32) (err error) {
 		},
 		Data: kyutaiTTSSamples,
 	}
-	// Samples from kyutai TTS are from -1 to 1, scale them to a standard bitdepth
+	// Samples from kyutai TTS are float32 (from -1 to 1)
+	// scale them to a standard bitdepth to allow int export
 	if err = transforms.PCMScaleF32(audioBuffer, 16); err != nil {
 		return fmt.Errorf("failed to scale samples: %w", err)
 	}
 	// Create a standard wave encoder
-	wavEncoder := wav.NewEncoder(
+	waveEncoder := wav.NewEncoder(
 		file,
 		audioBuffer.Format.SampleRate,
-		audioBuffer.SourceBitDepth,
+		audioBuffer.SourceBitDepth, // added by PCMScaleF32
 		audioBuffer.Format.NumChannels,
 		1,
 	)
 	// Write the samples as wave now that we have scaled the samples to a bitdepth
-	if err = wavEncoder.Write(audioBuffer.AsIntBuffer()); err != nil {
+	if err = waveEncoder.Write(audioBuffer.AsIntBuffer()); err != nil {
 		return fmt.Errorf("failed to encode audio sample as wav file: %w", err)
 	}
-	if err = wavEncoder.Close(); err != nil {
+	if err = waveEncoder.Close(); err != nil {
 		return fmt.Errorf("failed to flush wav encoder: %w", err)
 	}
 	return
