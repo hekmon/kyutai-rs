@@ -53,7 +53,7 @@ func (client *TTSClient) Connect(ctx context.Context) (ttsc TTSConnection, err e
 	// Prepare the websocket client
 	if ttsc.conn, _, err = websocket.Dial(ctx, client.url.String(), &websocket.DialOptions{
 		HTTPHeader: http.Header{
-			"kyutai-api-key": {client.apiKey},
+			"kyutai-api-key": []string{client.apiKey},
 		},
 		// TODO
 	}); err != nil {
@@ -78,12 +78,25 @@ type TTSConnection struct {
 	readerChan chan PackMessage
 }
 
+func (ttsc *TTSConnection) GetContext() context.Context {
+	return ttsc.workersCtx
+}
+
 func (ttsc *TTSConnection) GetWriteChan() chan<- string {
 	return ttsc.writerChan
 }
 
 func (ttsc *TTSConnection) GetReadChan() <-chan PackMessage {
 	return ttsc.readerChan
+}
+
+func (ttsc *TTSConnection) Done() (err error) {
+	if err = ttsc.workers.Wait(); errors.Is(err, context.Canceled) {
+		err = ttsc.conn.Close(websocket.StatusGoingAway, "")
+	} else {
+		_ = ttsc.conn.Close(websocket.StatusInternalError, "")
+	}
+	return
 }
 
 func (ttsc *TTSConnection) writer() (err error) {
@@ -122,7 +135,6 @@ func (ttsc *TTSConnection) writer() (err error) {
 				return
 			}
 		case <-ttsc.workersCtx.Done():
-			close(ttsc.writerChan) // avoid blocking user for nothing
 			return
 		}
 	}
@@ -168,13 +180,4 @@ func (ttsc *TTSConnection) reader() (err error) {
 			return fmt.Errorf("unexpected websocket message type: %d", msgType)
 		}
 	}
-}
-
-func (ttsc *TTSConnection) Wait() (err error) {
-	if err = ttsc.workers.Wait(); errors.Is(err, context.Canceled) {
-		err = ttsc.conn.Close(websocket.StatusGoingAway, "")
-	} else {
-		_ = ttsc.conn.Close(websocket.StatusInternalError, "")
-	}
-	return
 }

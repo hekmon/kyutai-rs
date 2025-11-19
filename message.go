@@ -8,10 +8,10 @@ package krs
 type PackMessageType string
 
 const (
-	PackMessageTypeText  PackMessageType = "Text"
 	PackMessageTypeReady PackMessageType = "Ready"
+	PackMessageTypeText  PackMessageType = "Text"
 	PackMessageTypeAudio PackMessageType = "Audio"
-	PackMessageTypeEoS   PackMessageType = "Eos"
+	PackMessageTypeEoS   PackMessageType = "Eos" // automatically sent when closing writer chan, should not be seen on the reader channel
 )
 
 // TextMessage sends text to TTS server
