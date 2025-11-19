@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -81,7 +82,7 @@ func sendInput(ctx context.Context, sender chan<- string, input string, wordsPer
 		scanner := bufio.NewScanner(os.Stdin)
 		for scanner.Scan() {
 			for word = range strings.SplitSeq(scanner.Text(), " ") {
-				if err = limiter.Wait(context.TODO()); err != nil {
+				if err = limiter.Wait(ctx); err != nil && !errors.Is(err, context.Canceled) {
 					panic(err)
 				}
 				select {
@@ -98,7 +99,7 @@ func sendInput(ctx context.Context, sender chan<- string, input string, wordsPer
 		}
 	} else {
 		for word = range strings.SplitSeq(input, " ") {
-			if err = limiter.Wait(context.TODO()); err != nil {
+			if err = limiter.Wait(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				panic(err)
 			}
 			select {
