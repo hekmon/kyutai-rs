@@ -220,7 +220,7 @@ func (sttc *STTConnection) reader() (err error) {
 			}
 			switch msgPack.Type {
 			case PackMessageTypeReady:
-				fmt.Println(QuickDebug(payload))
+				sttc.readerChan <- msgPack // ready does not have extra fields to parse
 			case PackMessageTypeStep:
 				var msgPackStep PackMessageStep
 				if _, err = msgPackStep.UnmarshalMsg(payload); err != nil {
