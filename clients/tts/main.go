@@ -132,16 +132,16 @@ func receiveOutput(ctx context.Context, receiver <-chan krs.PackMessage, audioSa
 				fmt.Fprintln(os.Stderr)
 				return
 			}
-			switch receivedMsgPack.Type {
-			case krs.PackMessageTypeText:
-				fmt.Fprintf(os.Stderr, "%s ", receivedMsgPack.Text)
-			case krs.PackMessageTypeAudio:
+			switch msgPackTyped := receivedMsgPack.(type) {
+			case krs.PackMessageText:
+				fmt.Fprintf(os.Stderr, "%s ", msgPackTyped.Text)
+			case krs.PackMessageAudio:
 				if stdoutOutput {
-					if err = binary.Write(os.Stdout, binary.LittleEndian, receivedMsgPack.PCM); err != nil {
+					if err = binary.Write(os.Stdout, binary.LittleEndian, msgPackTyped.PCM); err != nil {
 						panic(err)
 					}
 				} else {
-					*audioSamples = append(*audioSamples, receivedMsgPack.PCM...)
+					*audioSamples = append(*audioSamples, msgPackTyped.PCM...)
 				}
 			}
 		}

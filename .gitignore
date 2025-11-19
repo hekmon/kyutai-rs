@@ -36,3 +36,5 @@ clients/tts/tts
 clients/tts/tts.exe
 clients/tts/output.wav
 clients/tts/output.opus
+clients/stt/stt
+clients/stt/stt.exe

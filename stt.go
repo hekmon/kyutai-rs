@@ -109,7 +109,7 @@ func (sttc *STTConnection) writer() (err error) {
 			if open {
 				// If this is the first data we send, start with 1 second if silence
 				if buffer == nil {
-					if err = sttc.send(&PackMessage{
+					if err = sttc.send(&PackMessageAudio{
 						Type: PackMessageTypeAudio,
 						PCM:  oneSecondOfSilence,
 					}); err != nil {
@@ -122,7 +122,7 @@ func (sttc *STTConnection) writer() (err error) {
 				// Send our buffer by respecting the frame size (there will be leftovers)
 				for len(buffer) >= frameSize {
 					// respect the frame size
-					if err = sttc.send(&PackMessage{
+					if err = sttc.send(&PackMessageAudio{
 						Type: PackMessageTypeAudio,
 						PCM:  buffer[:frameSize],
 					}); err != nil {
@@ -134,7 +134,7 @@ func (sttc *STTConnection) writer() (err error) {
 			} else {
 				// Flush our buffer
 				for len(buffer) > 0 {
-					if err = sttc.send(&PackMessage{
+					if err = sttc.send(&PackMessageAudio{
 						Type: PackMessageTypeAudio,
 						PCM:  buffer,
 					}); err != nil {
@@ -144,7 +144,7 @@ func (sttc *STTConnection) writer() (err error) {
 				}
 				// Send 5 seconds of silence
 				for range 5 {
-					if err = sttc.send(&PackMessage{
+					if err = sttc.send(&PackMessageAudio{
 						Type: PackMessageTypeAudio,
 						PCM:  oneSecondOfSilence,
 					}); err != nil {
@@ -153,7 +153,7 @@ func (sttc *STTConnection) writer() (err error) {
 					}
 				}
 				// Send the end marker
-				if err = sttc.send(PackMarker{
+				if err = sttc.send(PackMessageMarker{
 					Type: PackMessageTypeMarker,
 					ID:   0,
 				}); err != nil {
@@ -162,7 +162,7 @@ func (sttc *STTConnection) writer() (err error) {
 				}
 				// Send some silence after the marker to flush the marker upstream
 				for range 35 {
-					if err = sttc.send(&PackMessage{
+					if err = sttc.send(&PackMessageAudio{
 						Type: PackMessageTypeAudio,
 						PCM:  oneSecondOfSilence,
 					}); err != nil {
@@ -193,9 +193,9 @@ func (sttc *STTConnection) send(msg msgp.Marshaler) (err error) {
 
 func (sttc *STTConnection) reader() (err error) {
 	var (
-		msgType           websocket.MessageType
-		payload, leftover []byte
-		msgPack           PackMessage
+		msgType websocket.MessageType
+		payload []byte
+		msgPack PackMessageHeader
 	)
 	for {
 		// Read a message on the websocket connection
@@ -214,17 +214,29 @@ func (sttc *STTConnection) reader() (err error) {
 		case websocket.MessageText:
 			return fmt.Errorf("received an unexpected text message: %s", string(payload))
 		case websocket.MessageBinary:
-			if leftover, err = msgPack.UnmarshalMsg(payload); err != nil {
+			if _, err = msgPack.UnmarshalMsg(payload); err != nil {
 				err = fmt.Errorf("failed to unmarshal the message pack: %w", err)
 				return
 			}
-			if len(leftover) > 0 {
-				err = fmt.Errorf("unexpected data after unmarshaling '%s' type message: %d bytes",
-					msgPack.Type, len(leftover),
-				)
-				return
+			switch msgPack.Type {
+			case PackMessageTypeReady:
+				fmt.Println(QuickDebug(payload))
+			case PackMessageTypeStep:
+				var msgPackStep PackMessageStep
+				if _, err = msgPackStep.UnmarshalMsg(payload); err != nil {
+					err = fmt.Errorf("failed to unmarshal the message pack: %w", err)
+					return
+				}
+				sttc.readerChan <- msgPackStep
+			case PackMessageTypeWord:
+				fmt.Println(QuickDebug(payload))
+			case PackMessageTypeEndWord:
+				fmt.Println(QuickDebug(payload))
+			case PackMessageTypeMarker:
+				fmt.Println(QuickDebug(payload))
+			default:
+				return fmt.Errorf("unexpected message pack type identifier: %s", msgPack.Type)
 			}
-			sttc.readerChan <- msgPack
 		default:
 			return fmt.Errorf("unexpected websocket message type: %d", msgType)
 		}
