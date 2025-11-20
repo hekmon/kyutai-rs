@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -86,10 +87,19 @@ func (ttsc *TTSConnection) GetReadChan() <-chan MessagePack {
 }
 
 func (ttsc *TTSConnection) Done() (err error) {
-	if err = ttsc.workers.Wait(); errors.Is(err, context.Canceled) {
-		err = ttsc.conn.Close(websocket.StatusGoingAway, "")
-	} else {
-		_ = ttsc.conn.Close(websocket.StatusInternalError, "")
+	if err = ttsc.workers.Wait(); err != nil {
+		var code websocket.StatusCode
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			code = websocket.StatusGoingAway
+		} else {
+			code = websocket.StatusInternalError
+		}
+		_ = ttsc.conn.Close(code, "") // discard any closing error as we want to keep the initial stop error
+		return
+	}
+	if err = ttsc.conn.Close(websocket.StatusNormalClosure, ""); errors.Is(err, io.EOF) {
+		// dunno why we can receive EOF here
+		err = nil
 	}
 	return
 }

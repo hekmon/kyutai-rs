@@ -73,6 +73,7 @@ func main() {
 }
 
 func sendInput(ctx context.Context, sender chan<- string, input string, wordsPerSecond int) {
+	defer close(sender) // Signal the connection we have finished submitting text by closing the sender channelQboudouW
 	var err error
 	// Create the rate limiter
 	limiter := rate.NewLimiter(rate.Limit(wordsPerSecond), 1)
@@ -82,7 +83,11 @@ func sendInput(ctx context.Context, sender chan<- string, input string, wordsPer
 		scanner := bufio.NewScanner(os.Stdin)
 		for scanner.Scan() {
 			for word = range strings.SplitSeq(scanner.Text(), " ") {
-				if err = limiter.Wait(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				if err = limiter.Wait(ctx); err != nil {
+					if errors.Is(err, context.Canceled) {
+						// the real error will be on Done()
+						return
+					}
 					panic(err)
 				}
 				select {
@@ -99,7 +104,11 @@ func sendInput(ctx context.Context, sender chan<- string, input string, wordsPer
 		}
 	} else {
 		for word = range strings.SplitSeq(input, " ") {
-			if err = limiter.Wait(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			if err = limiter.Wait(ctx); err != nil {
+				if errors.Is(err, context.Canceled) {
+					// the real error will be on Done()
+					return
+				}
 				panic(err)
 			}
 			select {
@@ -111,8 +120,6 @@ func sendInput(ctx context.Context, sender chan<- string, input string, wordsPer
 			}
 		}
 	}
-	// Signal the connection we have finished submitting text by closing the sender channel
-	close(sender)
 }
 
 func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack, audioSamples *[]float32, stdoutOutput bool) {
