@@ -59,7 +59,7 @@ func (mpa MessagePackAudio) MessageType() MessagePackType {
 
 type MessagePackMarker struct {
 	Type MessagePackType `msg:"type"`
-	ID   int             `msg:"id"`
+	ID   int64           `msg:"id"`
 }
 
 func (mpm MessagePackMarker) MessageType() MessagePackType {

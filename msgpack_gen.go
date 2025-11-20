@@ -318,7 +318,7 @@ func (z *MessagePackMarker) DecodeMsg(dc *msgp.Reader) (err error) {
 				z.Type = MessagePackType(zb0002)
 			}
 		case "id":
-			z.ID, err = dc.ReadInt()
+			z.ID, err = dc.ReadInt64()
 			if err != nil {
 				err = msgp.WrapError(err, "ID")
 				return
@@ -352,7 +352,7 @@ func (z MessagePackMarker) EncodeMsg(en *msgp.Writer) (err error) {
 	if err != nil {
 		return
 	}
-	err = en.WriteInt(z.ID)
+	err = en.WriteInt64(z.ID)
 	if err != nil {
 		err = msgp.WrapError(err, "ID")
 		return
@@ -369,7 +369,7 @@ func (z MessagePackMarker) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.AppendString(o, string(z.Type))
 	// string "id"
 	o = append(o, 0xa2, 0x69, 0x64)
-	o = msgp.AppendInt(o, z.ID)
+	o = msgp.AppendInt64(o, z.ID)
 	return
 }
 
@@ -402,7 +402,7 @@ func (z *MessagePackMarker) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				z.Type = MessagePackType(zb0002)
 			}
 		case "id":
-			z.ID, bts, err = msgp.ReadIntBytes(bts)
+			z.ID, bts, err = msgp.ReadInt64Bytes(bts)
 			if err != nil {
 				err = msgp.WrapError(err, "ID")
 				return
@@ -421,7 +421,7 @@ func (z *MessagePackMarker) UnmarshalMsg(bts []byte) (o []byte, err error) {
 
 // Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
 func (z MessagePackMarker) Msgsize() (s int) {
-	s = 1 + 5 + msgp.StringPrefixSize + len(string(z.Type)) + 3 + msgp.IntSize
+	s = 1 + 5 + msgp.StringPrefixSize + len(string(z.Type)) + 3 + msgp.Int64Size
 	return
 }
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"sync/atomic"
 
 	"github.com/coder/websocket"
 	"github.com/tinylib/msgp/msgp"
@@ -63,11 +64,12 @@ func (client *STTClient) Connect(ctx context.Context) (sttc STTConnection, err e
 }
 
 type STTConnection struct {
-	conn       *websocket.Conn
-	workers    *errgroup.Group
-	workersCtx context.Context
-	writerChan chan []float32
-	readerChan chan MessagePack
+	conn         *websocket.Conn
+	workers      *errgroup.Group
+	workersCtx   context.Context
+	writerChan   chan []float32
+	readerChan   chan MessagePack
+	markerIDsGen atomic.Int64
 }
 
 func (sttc *STTConnection) GetContext() context.Context {
@@ -76,6 +78,18 @@ func (sttc *STTConnection) GetContext() context.Context {
 
 func (sttc *STTConnection) GetWriteChan() chan<- []float32 {
 	return sttc.writerChan
+}
+
+func (sttc *STTConnection) SendMarker() (markerID int64, err error) {
+	markerID = sttc.markerIDsGen.Add(1)
+	if err = sttc.send(&MessagePackMarker{
+		Type: MessagePackTypeMarker,
+		ID:   markerID,
+	}); err != nil {
+		err = fmt.Errorf("failed to marked ID %d: %w", markerID, err)
+		return
+	}
+	return
 }
 
 func (sttc *STTConnection) GetReadChan() <-chan MessagePack {
@@ -155,7 +169,7 @@ func (sttc *STTConnection) writer() (err error) {
 				// Send the end marker
 				if err = sttc.send(MessagePackMarker{
 					Type: MessagePackTypeMarker,
-					ID:   0,
+					ID:   0, // special ID the SendMarker() will never send
 				}); err != nil {
 					err = fmt.Errorf("failed to send message: %w", err)
 					return
@@ -185,7 +199,7 @@ func (sttc *STTConnection) send(msg msgp.Marshaler) (err error) {
 		return
 	}
 	if err = sttc.conn.Write(sttc.workersCtx, websocket.MessageBinary, payload); err != nil {
-		err = fmt.Errorf("failed to write message into the websocket connection: %w", err)
+		err = fmt.Errorf("failed to write message pack into the websocket connection: %w", err)
 		return
 	}
 	return
@@ -248,6 +262,10 @@ func (sttc *STTConnection) reader() (err error) {
 				var msgPackMarker MessagePackMarker
 				if _, err = msgPackMarker.UnmarshalMsg(payload); err != nil {
 					err = fmt.Errorf("failed to unmarshal the message pack: %w", err)
+					return
+				}
+				if msgPackMarker.ID == 0 {
+					// stop signal, writer has exited and server have processed everything writer sent
 					return
 				}
 				sttc.readerChan <- msgPackMarker
