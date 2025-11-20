@@ -59,6 +59,7 @@ func main() {
 }
 
 func sendInput(ctx context.Context, sender chan<- []float32, input string) {
+	defer close(sender)
 	var err error
 	// Create the rate limiter, simulating realtime ingestion
 	limiter := rate.NewLimiter(rate.Limit(krs.SampleRate), 1)
@@ -73,6 +74,10 @@ func sendInput(ctx context.Context, sender chan<- []float32, input string) {
 				break
 			}
 			if err = limiter.Wait(ctx); err != nil {
+				if errors.Is(err, context.Canceled) {
+					// the real error will be on Done()
+					return
+				}
 				panic(err)
 			}
 			select {
@@ -97,6 +102,10 @@ func sendInput(ctx context.Context, sender chan<- []float32, input string) {
 		fmt.Println("audio samples:", len(audioSamples))
 		for _, point = range audioSamples {
 			if err = limiter.Wait(ctx); err != nil {
+				if errors.Is(err, context.Canceled) {
+					// the real error will be on Done()
+					return
+				}
 				panic(err)
 			}
 			select {
@@ -111,7 +120,6 @@ func sendInput(ctx context.Context, sender chan<- []float32, input string) {
 		}
 	}
 	// Signal the connection we have finished submitting text by closing the sender channel
-	close(sender)
 	fmt.Println("Audio entirely sent! (nb points:", nbPoints, ")")
 }
 
@@ -174,10 +182,12 @@ func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack) {
 				fmt.Fprintln(os.Stderr)
 				return
 			}
-			switch receivedMsgPack.(type) {
+			switch typed := receivedMsgPack.(type) {
 			case krs.MessagePackStep:
 				// fmt.Printf("remote audio ingestion buffer: %s\n", msgPackTyped.BufferDelay())
-			case krs.MessagePackMarker:
+			case krs.MessagePackWord:
+				fmt.Printf("%s ", typed.Text)
+			case krs.MessagePackWordEnd:
 			default:
 				fmt.Printf("Received msg pack type %q\n", receivedMsgPack.MessageType())
 			}

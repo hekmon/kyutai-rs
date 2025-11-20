@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"path"
 	"sync/atomic"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/tinylib/msgp/msgp"
@@ -56,6 +58,7 @@ func (client *STTClient) Connect(ctx context.Context) (sttc STTConnection, err e
 	// Prepare the channels
 	sttc.writerChan = make(chan []float32)
 	sttc.readerChan = make(chan MessagePack)
+	sttc.flushChan = make(chan any)
 	// Start workers
 	sttc.workers, sttc.workersCtx = errgroup.WithContext(ctx)
 	sttc.workers.Go(sttc.writer)
@@ -69,6 +72,7 @@ type STTConnection struct {
 	workersCtx   context.Context
 	writerChan   chan []float32
 	readerChan   chan MessagePack
+	flushChan    chan any
 	markerIDsGen atomic.Int64
 }
 
@@ -97,10 +101,19 @@ func (sttc *STTConnection) GetReadChan() <-chan MessagePack {
 }
 
 func (sttc *STTConnection) Done() (err error) {
-	if err = sttc.workers.Wait(); errors.Is(err, context.Canceled) {
-		err = sttc.conn.Close(websocket.StatusGoingAway, "")
-	} else {
-		_ = sttc.conn.Close(websocket.StatusInternalError, "")
+	if err = sttc.workers.Wait(); err != nil {
+		var code websocket.StatusCode
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			code = websocket.StatusGoingAway
+		} else {
+			code = websocket.StatusInternalError
+		}
+		_ = sttc.conn.Close(code, "") // discard any closing error as we want to keep the initial stop error
+		return
+	}
+	if err = sttc.conn.Close(websocket.StatusNormalClosure, ""); errors.Is(err, io.EOF) {
+		// dunno why we can receive EOF here
+		err = nil
 	}
 	return
 }
@@ -118,10 +131,9 @@ func (sttc *STTConnection) writer() (err error) {
 	for {
 		select {
 		case input, open = <-sttc.writerChan:
-			// Send logic is a bit weird, but taken from an official script:
-			// https://github.com/kyutai-labs/delayed-streams-modeling/blob/main/scripts/stt_from_file_rust_server.py
 			if open {
 				// If this is the first data we send, start with 1 second if silence
+				// https://github.com/kyutai-labs/delayed-streams-modeling/blob/main/scripts/stt_from_file_rust_server.py
 				if buffer == nil {
 					if err = sttc.send(&MessagePackAudio{
 						Type: MessagePackTypeAudio,
@@ -146,7 +158,7 @@ func (sttc *STTConnection) writer() (err error) {
 					buffer = buffer[FrameSize:]
 				}
 			} else {
-				// Flush our buffer
+				// Flush out our buffer
 				for len(buffer) > 0 {
 					if err = sttc.send(&MessagePackAudio{
 						Type: MessagePackTypeAudio,
@@ -156,35 +168,33 @@ func (sttc *STTConnection) writer() (err error) {
 						return
 					}
 				}
-				// Send 5 seconds of silence
-				for range 5 {
-					if err = sttc.send(&MessagePackAudio{
-						Type: MessagePackTypeAudio,
-						PCM:  oneSecondOfSilence,
-					}); err != nil {
-						err = fmt.Errorf("failed to send message: %w", err)
-						return
-					}
-				}
 				// Send the end marker
 				if err = sttc.send(MessagePackMarker{
 					Type: MessagePackTypeMarker,
-					ID:   0, // special ID the SendMarker() will never send
+					ID:   0, // special ID the SendMarker() will never use
 				}); err != nil {
 					err = fmt.Errorf("failed to send message: %w", err)
 					return
 				}
-				// Send some silence after the marker to flush the marker upstream
-				for range 35 {
-					if err = sttc.send(&MessagePackAudio{
-						Type: MessagePackTypeAudio,
-						PCM:  oneSecondOfSilence,
-					}); err != nil {
-						err = fmt.Errorf("failed to send message: %w", err)
+				// Send some silence to flush upstream buffer until we received the stop marker
+				ticker := time.NewTicker(time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ticker.C:
+						if err = sttc.send(&MessagePackAudio{
+							Type: MessagePackTypeAudio,
+							PCM:  oneSecondOfSilence,
+						}); err != nil {
+							err = fmt.Errorf("failed to send message: %w", err)
+							return
+						}
+						fmt.Println("silence sent")
+					case <-sttc.flushChan:
+						// reader has received the end marker
 						return
 					}
 				}
-				return
 			}
 		case <-sttc.workersCtx.Done():
 			return
@@ -207,9 +217,10 @@ func (sttc *STTConnection) send(msg msgp.Marshaler) (err error) {
 
 func (sttc *STTConnection) reader() (err error) {
 	var (
-		msgType websocket.MessageType
-		payload []byte
-		msgPack MessagePackHeader
+		msgType  websocket.MessageType
+		payload  []byte
+		msgPack  MessagePackHeader
+		draining bool
 	)
 	for {
 		// Read a message on the websocket connection
@@ -243,7 +254,17 @@ func (sttc *STTConnection) reader() (err error) {
 					err = fmt.Errorf("failed to unmarshal the message pack: %w", err)
 					return
 				}
-				sttc.readerChan <- msgPackStep
+				if draining {
+					// draining silence sent by writer to flush upstream model buffer
+					if msgPackStep.BufferedPCM == 0 {
+						// finaly received all the upstream buffered silence, we can exit to allow conn to close
+						return
+					}
+					// else there is still buffered upstream we need to drain, simply discard and wait for next step
+				} else {
+					// regular step before end marker, send it to user
+					sttc.readerChan <- msgPackStep
+				}
 			case MessagePackTypeWord:
 				var msgPackWord MessagePackWord
 				if _, err = msgPackWord.UnmarshalMsg(payload); err != nil {
@@ -265,10 +286,13 @@ func (sttc *STTConnection) reader() (err error) {
 					return
 				}
 				if msgPackMarker.ID == 0 {
-					// stop signal, writer has exited and server have processed everything writer sent
-					return
+					// stop signal received (back from writer)
+					close(sttc.flushChan) // signal writer it can stop sending silence
+					draining = true       // switch ourself to draining mode
+				} else {
+					// custom marker, send it to the user
+					sttc.readerChan <- msgPackMarker
 				}
-				sttc.readerChan <- msgPackMarker
 			default:
 				return fmt.Errorf("unexpected message pack type identifier: %s", msgPack.Type)
 			}
