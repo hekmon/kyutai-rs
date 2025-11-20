@@ -90,7 +90,7 @@ func (sttc *STTConnection) SendMarker() (markerID int64, err error) {
 		Type: MessagePackTypeMarker,
 		ID:   markerID,
 	}); err != nil {
-		err = fmt.Errorf("failed to marked ID %d: %w", markerID, err)
+		err = fmt.Errorf("failed to send marker ID %d: %w", markerID, err)
 		return
 	}
 	return
