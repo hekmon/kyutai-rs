@@ -23,7 +23,7 @@ const (
 
 func main() {
 	// Flags
-	server := flag.String("server", "ws://127.0.0.1:8080", "The websocket URL of the Kyutai TTS server.")
+	server := flag.String("server", "ws://127.0.0.1:8080", "The websocket URL of the Kyutai STT server.")
 	input := flag.String("input", "audio.wav", "Wav file to open. Use - for stdin.")
 	flag.Parse()
 	if *input != "-" && !strings.HasSuffix(*input, ".wav") {
