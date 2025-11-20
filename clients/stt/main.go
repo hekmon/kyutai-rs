@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-audio/wav"
 	krs "github.com/hekmon/kyutai-rs"
+	"github.com/hekmon/liveprogress/v2"
 	"golang.org/x/time/rate"
 )
 
@@ -53,6 +54,16 @@ func main() {
 	}()
 	fmt.Println(" connected.")
 
+	// Prepare the dynamic output
+	if err = liveprogress.Start(); err != nil {
+		panic(err)
+	}
+	defer func() {
+		if err = liveprogress.Stop(true); err != nil {
+			panic(err)
+		}
+	}()
+
 	// Start processing input and output independently
 	startSignal := make(chan any)
 	go receiveOutput(sttConn.GetContext(), sttConn.GetReadChan(), startSignal)
@@ -62,7 +73,30 @@ func main() {
 }
 
 func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack, sendSignal chan any) {
-	defer fmt.Println()
+	// Prepare the dynamic lines
+	//// Stats
+	var (
+		bufferDelay      time.Duration
+		currentTimestamp time.Duration
+	)
+	statsLine := liveprogress.AddCustomLine(func() string {
+		return fmt.Sprintf("Current timestamp: %s (upstream buffer delay: %s)",
+			currentTimestamp, bufferDelay,
+		)
+	})
+	defer liveprogress.RemoveCustomLine(statsLine)
+	//// Text
+	var text strings.Builder
+	textLine := liveprogress.AddCustomLine(func() string {
+		return text.String()
+	})
+	defer liveprogress.RemoveCustomLine(textLine)
+	//// final
+	defer func() {
+		// Final print before removing live line
+		fmt.Fprintln(liveprogress.Bypass(), text.String())
+	}()
+	// Process output
 	var (
 		receivedMsgPack krs.MessagePack
 		open            bool
@@ -82,16 +116,21 @@ func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack, sendSig
 				// or the connection context canceled and read here?
 				return
 			}
-			switch typed := receivedMsgPack.(type) {
+			switch msgPackTyped := receivedMsgPack.(type) {
 			case krs.MessagePackHeader:
-				if typed.Type == krs.MessagePackTypeReady {
+				if msgPackTyped.Type == krs.MessagePackTypeReady {
 					close(sendSignal) // inform writer it can start sending audio
 				}
 			case krs.MessagePackStep:
-				// fmt.Printf("remote audio ingestion buffer: %s\n", msgPackTyped.BufferDelay())
+				bufferDelay = msgPackTyped.BufferDelay()
 			case krs.MessagePackWord:
-				fmt.Printf("%s ", typed.Text)
+				if text.Len() > 0 {
+					text.WriteRune(' ')
+				}
+				text.WriteString(msgPackTyped.Text)
+				currentTimestamp = msgPackTyped.StartTimeDuration()
 			case krs.MessagePackWordEnd:
+				currentTimestamp = msgPackTyped.StopTimeDuration()
 			default:
 				fmt.Printf("Received msg pack type %q\n", receivedMsgPack.MessageType())
 			}
