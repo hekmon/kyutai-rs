@@ -9,9 +9,11 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/go-audio/wav"
 	krs "github.com/hekmon/kyutai-rs"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/time/rate"
 )
 
@@ -25,7 +27,7 @@ func main() {
 	input := flag.String("input", "audio.wav", "Wav file to open. Use - for stdin.")
 	flag.Parse()
 	if *input != "-" && !strings.HasSuffix(*input, ".wav") {
-		fmt.Fprintln(os.Stderr, "When outputing to a file, you must use a .wav extension.")
+		fmt.Println("When outputing to a file, you must use a .wav extension.")
 		os.Exit(1)
 	}
 
@@ -39,18 +41,26 @@ func main() {
 	}
 
 	// Open a connection
-	fmt.Fprintf(os.Stderr, "Opening a connection...")
+	fmt.Printf("Opening a connection...")
 	ttsConn, err := sttClient.Connect(context.Background())
 	if err != nil {
 		panic(err)
 	}
-	fmt.Fprintln(os.Stderr, " connected.")
+	fmt.Println(" connected.")
 
-	// Send the input audio to the TTS server...
-	go sendInput(ttsConn.GetContext(), ttsConn.GetWriteChan(), *input)
-
-	// ... while receiving corresponding text
-	go receiveOutput(ttsConn.GetContext(), ttsConn.GetReadChan())
+	// Prepare our 2 independants write/read workers
+	startSignal := make(chan any)
+	workers := new(errgroup.Group)
+	workers.Go(func() error {
+		receiveOutput(ttsConn.GetContext(), ttsConn.GetReadChan(), startSignal)
+		return nil
+	})
+	workers.Go(func() error {
+		return sendInput(ttsConn.GetContext(), ttsConn.GetWriteChan(), *input, startSignal)
+	})
+	if err = workers.Wait(); err != nil {
+		panic(err)
+	}
 
 	// Wait until the connection is done and collect error if any
 	if err = ttsConn.Done(); err != nil {
@@ -58,72 +68,129 @@ func main() {
 	}
 }
 
-func sendInput(ctx context.Context, sender chan<- []float32, input string) {
-	defer close(sender)
-	var err error
-	// Create the rate limiter, simulating realtime ingestion
-	limiter := rate.NewLimiter(rate.Limit(krs.SampleRate), 1)
-	// Process input
+func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack, sendSignal chan any) {
 	var (
-		point    float32
-		nbPoints int
+		receivedMsgPack krs.MessagePack
+		open            bool
 	)
-	if input == "-" {
-		for {
-			if err = binary.Read(os.Stdin, binary.LittleEndian, &point); err != nil {
-				break
-			}
-			if err = limiter.Wait(ctx); err != nil {
-				if errors.Is(err, context.Canceled) {
-					// the real error will be on Done()
-					return
-				}
-				panic(err)
-			}
-			select {
-			case <-ctx.Done():
-				// connection context canceled, stop using the sender channel
+	for {
+		select {
+		case <-ctx.Done():
+			// connection context canceled, stop using the receiver channel
+			return
+		case receivedMsgPack, open = <-receiver:
+			if !open {
+				// End of server stream
+				fmt.Println()
 				return
-			case sender <- []float32{point}:
-				// inefficient but allows to respect the sample rate with the ratelimiter
-				// simulating real time audio feed
-				nbPoints++
 			}
-		}
-		if !errors.Is(err, io.EOF) {
-			panic(err)
-		}
-	} else {
-		// open wave file
-		audioSamples, err := readWaveFile(input)
-		if err != nil {
-			panic(err)
-		}
-		fmt.Println("audio samples:", len(audioSamples))
-		for _, point = range audioSamples {
-			if err = limiter.Wait(ctx); err != nil {
-				if errors.Is(err, context.Canceled) {
-					// the real error will be on Done()
-					return
+			switch typed := receivedMsgPack.(type) {
+			case krs.MessagePackHeader:
+				if typed.Type == krs.MessagePackTypeReady {
+					close(sendSignal) // inform writer it can start sending audio
 				}
-				panic(err)
-			}
-			select {
-			case <-ctx.Done():
-				// connection context canceled, stop using the sender channel
-				return
-			case sender <- []float32{point}:
-				// inefficient but allows to respect the sample rate with the ratelimiter
-				// simulating real time audio feed
-				nbPoints++
+			case krs.MessagePackStep:
+				// fmt.Printf("remote audio ingestion buffer: %s\n", msgPackTyped.BufferDelay())
+			case krs.MessagePackWord:
+				fmt.Printf("%s ", typed.Text)
+			case krs.MessagePackWordEnd:
+			default:
+				fmt.Printf("Received msg pack type %q\n", receivedMsgPack.MessageType())
 			}
 		}
 	}
-	// Signal the connection we have finished submitting text by closing the sender channel
-	fmt.Println("Audio entirely sent! (nb points:", nbPoints, ")")
 }
 
-func readWaveFile(filename string) (audioSamples []float32, err error) {
+func sendInput(ctx context.Context, sender chan<- []float32, input string, startSignal chan any) (err error) {
+	defer close(sender) // Signal the connection we have finished submitting text by closing the sender channel
+	// Wait for the server to be ready to process audio
+	select {
+	case <-ctx.Done():
+		return
+	case <-startSignal:
+		// continue
+	}
+	// Process input
+	if input == "-" {
+		return sendInputStdin(ctx, sender)
+	}
+	return sendInputFile(ctx, sender, input)
+}
+
+func sendInputStdin(ctx context.Context, sender chan<- []float32) (err error) {
+	var (
+		point float32
+	)
+	// Create the rate limiter, simulating realtime ingestion
+	limiter := rate.NewLimiter(rate.Limit(krs.SampleRate), 1)
+	for {
+		if err = binary.Read(os.Stdin, binary.LittleEndian, &point); err != nil {
+			if errors.Is(err, io.EOF) {
+				err = nil
+			} else {
+				err = fmt.Errorf("failed to read binary float32 from stdin: %w", err)
+			}
+			return
+		}
+		if err = limiter.Wait(ctx); err != nil {
+			if errors.Is(err, context.Canceled) {
+				// the real error will be on Done()
+				err = nil
+			} else {
+				err = fmt.Errorf("rate limiter wait failed: %w", err)
+			}
+			return
+		}
+		select {
+		case <-ctx.Done():
+			// connection context canceled, stop using the sender channel
+			return
+		case sender <- []float32{point}:
+			// inefficient but allows to respect the sample rate with the ratelimiter
+			// simulating real time audio feed
+		}
+	}
+}
+
+func sendInputFile(ctx context.Context, sender chan<- []float32, input string) (err error) {
+	// open wave file
+	var (
+		audioSamples []float32
+		duration     time.Duration
+		point        float32
+	)
+	if audioSamples, duration, err = readWaveFileAt24kHz(input); err != nil {
+		err = fmt.Errorf("failed to read wave file: %w", err)
+		return
+	}
+	fmt.Printf("audio file duration: %s (%d samples @%dHz)\n",
+		&duration, len(audioSamples), krs.SampleRate,
+	)
+	// Create the rate limiter, simulating realtime ingestion
+	limiter := rate.NewLimiter(rate.Limit(krs.SampleRate), 1)
+	for _, point = range audioSamples {
+		if err = limiter.Wait(ctx); err != nil {
+			if errors.Is(err, context.Canceled) {
+				// the real error will be on Done()
+				err = nil
+			} else {
+				err = fmt.Errorf("rate limiter wait failed: %w", err)
+			}
+			return
+		}
+		select {
+		case <-ctx.Done():
+			// connection context canceled, stop using the sender channel
+			return
+		case sender <- []float32{point}:
+			// inefficient but allows to respect the sample rate with the ratelimiter
+			// simulating real time audio feed
+		}
+	}
+	return
+}
+
+func readWaveFileAt24kHz(filename string) (audioSamples []float32, duration time.Duration, err error) {
 	// Open file
 	fd, err := os.Open(filename)
 	if err != nil {
@@ -149,12 +216,10 @@ func readWaveFile(filename string) (audioSamples []float32, err error) {
 		)
 		return
 	}
-	duration, err := waveDecoder.Duration()
-	if err != nil {
+	if duration, err = waveDecoder.Duration(); err != nil {
 		err = fmt.Errorf("failed to read wav file duration: %w", err)
 		return
 	}
-	fmt.Printf("input file duration: %s\n", duration)
 	// Extract PCM
 	buffer, err := waveDecoder.FullPCMBuffer()
 	if err != nil {
@@ -163,34 +228,4 @@ func readWaveFile(filename string) (audioSamples []float32, err error) {
 	}
 	audioSamples = buffer.AsFloat32Buffer().Data
 	return
-}
-
-func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack) {
-	var (
-		receivedMsgPack krs.MessagePack
-		open            bool
-		// err             error
-	)
-	for {
-		select {
-		case <-ctx.Done():
-			// connection context canceled, stop using the receiver channel
-			return
-		case receivedMsgPack, open = <-receiver:
-			if !open {
-				// End of server stream
-				fmt.Fprintln(os.Stderr)
-				return
-			}
-			switch typed := receivedMsgPack.(type) {
-			case krs.MessagePackStep:
-				// fmt.Printf("remote audio ingestion buffer: %s\n", msgPackTyped.BufferDelay())
-			case krs.MessagePackWord:
-				fmt.Printf("%s ", typed.Text)
-			case krs.MessagePackWordEnd:
-			default:
-				fmt.Printf("Received msg pack type %q\n", receivedMsgPack.MessageType())
-			}
-		}
-	}
 }
