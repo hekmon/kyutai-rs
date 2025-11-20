@@ -241,12 +241,6 @@ func readWaveFileAt24kHz(filename string) (audioSamples []float32, duration time
 		err = errors.New("invalid wav file")
 		return
 	}
-	if waveDecoder.NumChans != krs.NumChannels {
-		err = fmt.Errorf("wav file must have %d channel, current channels: %d",
-			krs.NumChannels, waveDecoder.NumChans,
-		)
-		return
-	}
 	if waveDecoder.SampleRate != krs.SampleRate {
 		err = fmt.Errorf("wav file must have a sample rate of %dHz, currently: %dHz",
 			krs.SampleRate, waveDecoder.SampleRate,
@@ -262,6 +256,23 @@ func readWaveFileAt24kHz(filename string) (audioSamples []float32, duration time
 	if err != nil {
 		err = fmt.Errorf("failed to extract PCM from wav file: %w", err)
 		return
+	}
+	// We need mono
+	switch buffer.Format.NumChannels {
+	case 0:
+		err = errors.New("no channels found")
+		return
+	case krs.NumChannels:
+		// ok
+	default:
+		// too many channels, let's filter out
+		filteredSamples := make([]int, len(buffer.Data)/krs.NumChannels)
+		for i := range len(buffer.Data) / krs.NumChannels {
+			filteredSamples[i] = buffer.Data[i*krs.NumChannels]
+		}
+		// done
+		buffer.Data = filteredSamples
+		buffer.Format.NumChannels = krs.NumChannels
 	}
 	audioSamples = buffer.AsFloat32Buffer().Data
 	return
