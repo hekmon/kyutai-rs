@@ -870,7 +870,7 @@ func (z *MessagePackWord) DecodeMsg(dc *msgp.Reader) (err error) {
 				return
 			}
 		case "start_time":
-			z.StartTime, err = dc.ReadFloat32()
+			z.StartTime, err = dc.ReadFloat64()
 			if err != nil {
 				err = msgp.WrapError(err, "StartTime")
 				return
@@ -914,7 +914,7 @@ func (z MessagePackWord) EncodeMsg(en *msgp.Writer) (err error) {
 	if err != nil {
 		return
 	}
-	err = en.WriteFloat32(z.StartTime)
+	err = en.WriteFloat64(z.StartTime)
 	if err != nil {
 		err = msgp.WrapError(err, "StartTime")
 		return
@@ -934,7 +934,7 @@ func (z MessagePackWord) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.AppendString(o, z.Text)
 	// string "start_time"
 	o = append(o, 0xaa, 0x73, 0x74, 0x61, 0x72, 0x74, 0x5f, 0x74, 0x69, 0x6d, 0x65)
-	o = msgp.AppendFloat32(o, z.StartTime)
+	o = msgp.AppendFloat64(o, z.StartTime)
 	return
 }
 
@@ -973,7 +973,7 @@ func (z *MessagePackWord) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				return
 			}
 		case "start_time":
-			z.StartTime, bts, err = msgp.ReadFloat32Bytes(bts)
+			z.StartTime, bts, err = msgp.ReadFloat64Bytes(bts)
 			if err != nil {
 				err = msgp.WrapError(err, "StartTime")
 				return
@@ -992,7 +992,7 @@ func (z *MessagePackWord) UnmarshalMsg(bts []byte) (o []byte, err error) {
 
 // Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
 func (z MessagePackWord) Msgsize() (s int) {
-	s = 1 + 5 + msgp.StringPrefixSize + len(string(z.Type)) + 5 + msgp.StringPrefixSize + len(z.Text) + 11 + msgp.Float32Size
+	s = 1 + 5 + msgp.StringPrefixSize + len(string(z.Type)) + 5 + msgp.StringPrefixSize + len(z.Text) + 11 + msgp.Float64Size
 	return
 }
 
@@ -1025,7 +1025,7 @@ func (z *MessagePackWordEnd) DecodeMsg(dc *msgp.Reader) (err error) {
 				z.Type = MessagePackType(zb0002)
 			}
 		case "stop_time":
-			z.StopTime, err = dc.ReadFloat32()
+			z.StopTime, err = dc.ReadFloat64()
 			if err != nil {
 				err = msgp.WrapError(err, "StopTime")
 				return
@@ -1059,7 +1059,7 @@ func (z MessagePackWordEnd) EncodeMsg(en *msgp.Writer) (err error) {
 	if err != nil {
 		return
 	}
-	err = en.WriteFloat32(z.StopTime)
+	err = en.WriteFloat64(z.StopTime)
 	if err != nil {
 		err = msgp.WrapError(err, "StopTime")
 		return
@@ -1076,7 +1076,7 @@ func (z MessagePackWordEnd) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.AppendString(o, string(z.Type))
 	// string "stop_time"
 	o = append(o, 0xa9, 0x73, 0x74, 0x6f, 0x70, 0x5f, 0x74, 0x69, 0x6d, 0x65)
-	o = msgp.AppendFloat32(o, z.StopTime)
+	o = msgp.AppendFloat64(o, z.StopTime)
 	return
 }
 
@@ -1109,7 +1109,7 @@ func (z *MessagePackWordEnd) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				z.Type = MessagePackType(zb0002)
 			}
 		case "stop_time":
-			z.StopTime, bts, err = msgp.ReadFloat32Bytes(bts)
+			z.StopTime, bts, err = msgp.ReadFloat64Bytes(bts)
 			if err != nil {
 				err = msgp.WrapError(err, "StopTime")
 				return
@@ -1128,6 +1128,6 @@ func (z *MessagePackWordEnd) UnmarshalMsg(bts []byte) (o []byte, err error) {
 
 // Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
 func (z MessagePackWordEnd) Msgsize() (s int) {
-	s = 1 + 5 + msgp.StringPrefixSize + len(string(z.Type)) + 10 + msgp.Float32Size
+	s = 1 + 5 + msgp.StringPrefixSize + len(string(z.Type)) + 10 + msgp.Float64Size
 	return
 }

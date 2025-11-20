@@ -84,7 +84,7 @@ func (mps MessagePackStep) BufferDelay() time.Duration {
 type MessagePackWord struct {
 	Type      MessagePackType `msg:"type"`
 	Text      string          `msg:"text"`
-	StartTime float32         `msg:"start_time"`
+	StartTime float64         `msg:"start_time"`
 }
 
 func (mpw MessagePackWord) MessageType() MessagePackType {
@@ -92,12 +92,12 @@ func (mpw MessagePackWord) MessageType() MessagePackType {
 }
 
 func (mpw MessagePackWord) StartTimeDuration() time.Duration {
-	return time.Duration(mpw.StartTime * float32(time.Second))
+	return time.Duration(mpw.StartTime * float64(time.Second))
 }
 
 type MessagePackWordEnd struct {
 	Type     MessagePackType `msg:"type"`
-	StopTime float32         `msg:"stop_time"`
+	StopTime float64         `msg:"stop_time"`
 }
 
 func (mpwe MessagePackWordEnd) MessageType() MessagePackType {
@@ -105,7 +105,7 @@ func (mpwe MessagePackWordEnd) MessageType() MessagePackType {
 }
 
 func (mpwe MessagePackWordEnd) StopTimeDuration() time.Duration {
-	return time.Duration(mpwe.StopTime * float32(time.Second))
+	return time.Duration(mpwe.StopTime * float64(time.Second))
 }
 
 func QuickDebug(msgpackData []byte) string {
