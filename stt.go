@@ -70,10 +70,10 @@ type STTConnection struct {
 	conn         *websocket.Conn
 	workers      *errgroup.Group
 	workersCtx   context.Context
+	markerIDsGen atomic.Int64
 	writerChan   chan []float32
 	readerChan   chan MessagePack
 	flushChan    chan any
-	markerIDsGen atomic.Int64
 }
 
 func (sttc *STTConnection) GetContext() context.Context {
@@ -133,7 +133,7 @@ func (sttc *STTConnection) writer() (err error) {
 		case input, open = <-sttc.writerChan:
 			if open {
 				// If this is the first data we send, start with 1 second if silence
-				// https://github.com/kyutai-labs/delayed-streams-modeling/blob/main/scripts/stt_from_file_rust_server.py
+				// https://github.com/kyutai-labs/delayed-streams-modeling/blob/433dca3751a2a21a95a6d7ca1fd2a44c516a729c/scripts/stt_from_file_rust_server.py#L67-L69
 				if buffer == nil {
 					if err = sttc.send(&MessagePackAudio{
 						Type: MessagePackTypeAudio,
@@ -160,6 +160,11 @@ func (sttc *STTConnection) writer() (err error) {
 			} else {
 				// Flush out our buffer
 				for len(buffer) > 0 {
+					// fill buffer with silence
+					if len(buffer) < FrameSize {
+						buffer = append(buffer, make([]float32, FrameSize-len(buffer))...)
+					}
+					// send it
 					if err = sttc.send(&MessagePackAudio{
 						Type: MessagePackTypeAudio,
 						PCM:  buffer,
@@ -167,6 +172,8 @@ func (sttc *STTConnection) writer() (err error) {
 						err = fmt.Errorf("failed to send message: %w", err)
 						return
 					}
+					// nullify it
+					buffer = buffer[:]
 				}
 				// Send the end marker
 				if err = sttc.send(MessagePackMarker{
@@ -189,7 +196,6 @@ func (sttc *STTConnection) writer() (err error) {
 							err = fmt.Errorf("failed to send message: %w", err)
 							return
 						}
-						fmt.Println("silence sent")
 					case <-sttc.flushChan:
 						// reader has received the end marker
 						return
