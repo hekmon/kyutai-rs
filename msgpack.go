@@ -10,75 +10,102 @@ import (
 	"github.com/tinylib/msgp/msgp"
 )
 
-type PackMessageType string
+type MessagePackType string
 
 const (
 	// Can be received by the reader channel
 	//// STT
-	PackMessageTypeStep    PackMessageType = "Step"
-	PackMessageTypeWord    PackMessageType = "Word"
-	PackMessageTypeEndWord PackMessageType = "EndWord"
+	MessagePackTypeStep    MessagePackType = "Step"
+	MessagePackTypeWord    MessagePackType = "Word"
+	MessagePackTypeEndWord MessagePackType = "EndWord"
 	//// TTS
-	PackMessageTypeReady PackMessageType = "Ready"
-	PackMessageTypeText  PackMessageType = "Text"
-	PackMessageTypeAudio PackMessageType = "Audio"
+	MessagePackTypeReady MessagePackType = "Ready"
+	MessagePackTypeText  MessagePackType = "Text"
+	MessagePackTypeAudio MessagePackType = "Audio"
 	// Below are types handled automatically by the lib
-	PackMessageTypeEoS    PackMessageType = "Eos"
-	PackMessageTypeMarker PackMessageType = "Marker"
+	MessagePackTypeEoS    MessagePackType = "Eos"
+	MessagePackTypeMarker MessagePackType = "Marker"
 )
 
-type PackMessage interface {
-	MessageType() PackMessageType
+type MessagePack interface {
+	MessageType() MessagePackType
 }
 
-type PackMessageHeader struct {
-	Type PackMessageType `msg:"type"`
+type MessagePackHeader struct {
+	Type MessagePackType `msg:"type"`
 }
 
-func (pmh PackMessageHeader) MessageType() PackMessageType {
+func (pmh MessagePackHeader) MessageType() MessagePackType {
 	return pmh.Type
 }
 
-type PackMessageText struct {
-	Type PackMessageType `msg:"type"`
+type MessagePackText struct {
+	Type MessagePackType `msg:"type"`
 	Text string          `msg:"text"`
 }
 
-func (pmt PackMessageText) MessageType() PackMessageType {
+func (pmt MessagePackText) MessageType() MessagePackType {
 	return pmt.Type
 }
 
-type PackMessageAudio struct {
-	Type PackMessageType `msg:"type"`
+type MessagePackAudio struct {
+	Type MessagePackType `msg:"type"`
 	PCM  []float32       `msg:"pcm"`
 }
 
-func (pma PackMessageAudio) MessageType() PackMessageType {
-	return pma.Type
+func (mpa MessagePackAudio) MessageType() MessagePackType {
+	return mpa.Type
 }
 
-type PackMessageMarker struct {
-	Type PackMessageType `msg:"type"`
+type MessagePackMarker struct {
+	Type MessagePackType `msg:"type"`
 	ID   int             `msg:"id"`
 }
 
-func (pmm PackMessageMarker) MessageType() PackMessageType {
-	return pmm.Type
+func (mpm MessagePackMarker) MessageType() MessagePackType {
+	return mpm.Type
 }
 
-type PackMessageStep struct {
-	Type        PackMessageType `msg:"type"`
+type MessagePackStep struct {
+	Type        MessagePackType `msg:"type"`
 	Prs         []float32       `msg:"prs"`
 	StepIndex   int             `msg:"step_idx"`
 	BufferedPCM int             `msg:"buffered_pcm"`
 }
 
-func (pms PackMessageStep) MessageType() PackMessageType {
-	return pms.Type
+func (mps MessagePackStep) MessageType() MessagePackType {
+	return mps.Type
 }
 
-func (pms PackMessageStep) BufferDelay() time.Duration {
-	return time.Duration(pms.BufferedPCM) * time.Second / SampleRate
+func (mps MessagePackStep) BufferDelay() time.Duration {
+	return time.Duration(mps.BufferedPCM) * time.Second / SampleRate
+}
+
+type MessagePackWord struct {
+	Type      MessagePackType `msg:"type"`
+	Text      string          `msg:"text"`
+	StartTime float32         `msg:"start_time"`
+}
+
+func (mpw MessagePackWord) MessageType() MessagePackType {
+	return mpw.Type
+}
+
+func (mpw MessagePackWord) StartTimeDuration() time.Duration {
+	return time.Duration(mpw.StartTime * float32(time.Second))
+}
+
+type MessagePackWordEnd struct {
+	Type     MessagePackType `msg:"type"`
+	StopTime float32         `msg:"stop_time"`
+}
+
+func (mpwe MessagePackWordEnd) MessageType() MessagePackType {
+	return mpwe.Type
+}
+
+func (mpwe MessagePackWordEnd) StopTimeDuration() time.Duration {
+	return time.Duration(mpwe.StopTime * float32(time.Second))
 }
 
 func QuickDebug(msgpackData []byte) string {

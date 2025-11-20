@@ -54,7 +54,7 @@ func (client *STTClient) Connect(ctx context.Context) (sttc STTConnection, err e
 	}
 	// Prepare the channels
 	sttc.writerChan = make(chan []float32)
-	sttc.readerChan = make(chan PackMessage)
+	sttc.readerChan = make(chan MessagePack)
 	// Start workers
 	sttc.workers, sttc.workersCtx = errgroup.WithContext(ctx)
 	sttc.workers.Go(sttc.writer)
@@ -67,7 +67,7 @@ type STTConnection struct {
 	workers    *errgroup.Group
 	workersCtx context.Context
 	writerChan chan []float32
-	readerChan chan PackMessage
+	readerChan chan MessagePack
 }
 
 func (sttc *STTConnection) GetContext() context.Context {
@@ -78,7 +78,7 @@ func (sttc *STTConnection) GetWriteChan() chan<- []float32 {
 	return sttc.writerChan
 }
 
-func (sttc *STTConnection) GetReadChan() <-chan PackMessage {
+func (sttc *STTConnection) GetReadChan() <-chan MessagePack {
 	return sttc.readerChan
 }
 
@@ -109,8 +109,8 @@ func (sttc *STTConnection) writer() (err error) {
 			if open {
 				// If this is the first data we send, start with 1 second if silence
 				if buffer == nil {
-					if err = sttc.send(&PackMessageAudio{
-						Type: PackMessageTypeAudio,
+					if err = sttc.send(&MessagePackAudio{
+						Type: MessagePackTypeAudio,
 						PCM:  oneSecondOfSilence,
 					}); err != nil {
 						err = fmt.Errorf("failed to send message: %w", err)
@@ -120,22 +120,22 @@ func (sttc *STTConnection) writer() (err error) {
 				// Add input data to the buffer
 				buffer = append(buffer, input...)
 				// Send our buffer by respecting the frame size (there will be leftovers)
-				for len(buffer) >= frameSize {
+				for len(buffer) >= FrameSize {
 					// respect the frame size
-					if err = sttc.send(&PackMessageAudio{
-						Type: PackMessageTypeAudio,
-						PCM:  buffer[:frameSize],
+					if err = sttc.send(&MessagePackAudio{
+						Type: MessagePackTypeAudio,
+						PCM:  buffer[:FrameSize],
 					}); err != nil {
 						err = fmt.Errorf("failed to send message: %w", err)
 						return
 					}
-					buffer = buffer[frameSize:]
+					buffer = buffer[FrameSize:]
 				}
 			} else {
 				// Flush our buffer
 				for len(buffer) > 0 {
-					if err = sttc.send(&PackMessageAudio{
-						Type: PackMessageTypeAudio,
+					if err = sttc.send(&MessagePackAudio{
+						Type: MessagePackTypeAudio,
 						PCM:  buffer,
 					}); err != nil {
 						err = fmt.Errorf("failed to send message: %w", err)
@@ -144,8 +144,8 @@ func (sttc *STTConnection) writer() (err error) {
 				}
 				// Send 5 seconds of silence
 				for range 5 {
-					if err = sttc.send(&PackMessageAudio{
-						Type: PackMessageTypeAudio,
+					if err = sttc.send(&MessagePackAudio{
+						Type: MessagePackTypeAudio,
 						PCM:  oneSecondOfSilence,
 					}); err != nil {
 						err = fmt.Errorf("failed to send message: %w", err)
@@ -153,8 +153,8 @@ func (sttc *STTConnection) writer() (err error) {
 					}
 				}
 				// Send the end marker
-				if err = sttc.send(PackMessageMarker{
-					Type: PackMessageTypeMarker,
+				if err = sttc.send(MessagePackMarker{
+					Type: MessagePackTypeMarker,
 					ID:   0,
 				}); err != nil {
 					err = fmt.Errorf("failed to send message: %w", err)
@@ -162,8 +162,8 @@ func (sttc *STTConnection) writer() (err error) {
 				}
 				// Send some silence after the marker to flush the marker upstream
 				for range 35 {
-					if err = sttc.send(&PackMessageAudio{
-						Type: PackMessageTypeAudio,
+					if err = sttc.send(&MessagePackAudio{
+						Type: MessagePackTypeAudio,
 						PCM:  oneSecondOfSilence,
 					}); err != nil {
 						err = fmt.Errorf("failed to send message: %w", err)
@@ -195,7 +195,7 @@ func (sttc *STTConnection) reader() (err error) {
 	var (
 		msgType websocket.MessageType
 		payload []byte
-		msgPack PackMessageHeader
+		msgPack MessagePackHeader
 	)
 	for {
 		// Read a message on the websocket connection
@@ -209,31 +209,48 @@ func (sttc *STTConnection) reader() (err error) {
 			}
 			return
 		}
-		// Act based on message
+		// Act based on websocket message type
 		switch msgType {
 		case websocket.MessageText:
-			return fmt.Errorf("received an unexpected text message: %s", string(payload))
+			return fmt.Errorf("received an unexpected websocket text message: %s", string(payload))
 		case websocket.MessageBinary:
+			// Unmarsal binary as MessagePack on a identifier type structure
 			if _, err = msgPack.UnmarshalMsg(payload); err != nil {
 				err = fmt.Errorf("failed to unmarshal the message pack: %w", err)
 				return
 			}
+			// Unmarshal the full payload into the correct type
 			switch msgPack.Type {
-			case PackMessageTypeReady:
+			case MessagePackTypeReady:
 				sttc.readerChan <- msgPack // ready does not have extra fields to parse
-			case PackMessageTypeStep:
-				var msgPackStep PackMessageStep
+			case MessagePackTypeStep:
+				var msgPackStep MessagePackStep
 				if _, err = msgPackStep.UnmarshalMsg(payload); err != nil {
 					err = fmt.Errorf("failed to unmarshal the message pack: %w", err)
 					return
 				}
 				sttc.readerChan <- msgPackStep
-			case PackMessageTypeWord:
-				fmt.Println(QuickDebug(payload))
-			case PackMessageTypeEndWord:
-				fmt.Println(QuickDebug(payload))
-			case PackMessageTypeMarker:
-				fmt.Println(QuickDebug(payload))
+			case MessagePackTypeWord:
+				var msgPackWord MessagePackWord
+				if _, err = msgPackWord.UnmarshalMsg(payload); err != nil {
+					err = fmt.Errorf("failed to unmarshal the message pack: %w", err)
+					return
+				}
+				sttc.readerChan <- msgPackWord
+			case MessagePackTypeEndWord:
+				var msgPackWordEnd MessagePackWordEnd
+				if _, err = msgPackWordEnd.UnmarshalMsg(payload); err != nil {
+					err = fmt.Errorf("failed to unmarshal the message pack: %w", err)
+					return
+				}
+				sttc.readerChan <- msgPackWordEnd
+			case MessagePackTypeMarker:
+				var msgPackMarker MessagePackMarker
+				if _, err = msgPackMarker.UnmarshalMsg(payload); err != nil {
+					err = fmt.Errorf("failed to unmarshal the message pack: %w", err)
+					return
+				}
+				sttc.readerChan <- msgPackMarker
 			default:
 				return fmt.Errorf("unexpected message pack type identifier: %s", msgPack.Type)
 			}

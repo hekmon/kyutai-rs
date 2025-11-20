@@ -157,9 +157,9 @@ func readWaveFile(filename string) (audioSamples []float32, err error) {
 	return
 }
 
-func receiveOutput(ctx context.Context, receiver <-chan krs.PackMessage) {
+func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack) {
 	var (
-		receivedMsgPack krs.PackMessage
+		receivedMsgPack krs.MessagePack
 		open            bool
 		// err             error
 	)
@@ -174,10 +174,10 @@ func receiveOutput(ctx context.Context, receiver <-chan krs.PackMessage) {
 				fmt.Fprintln(os.Stderr)
 				return
 			}
-			switch msgPackTyped := receivedMsgPack.(type) {
-			case krs.PackMessageStep:
+			switch receivedMsgPack.(type) {
+			case krs.MessagePackStep:
 				// fmt.Printf("remote audio ingestion buffer: %s\n", msgPackTyped.BufferDelay())
-			case krs.PackMessageMarker:
+			case krs.MessagePackMarker:
 			default:
 				fmt.Printf("Received msg pack type %q\n", receivedMsgPack.MessageType())
 			}

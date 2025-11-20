@@ -115,9 +115,9 @@ func sendInput(ctx context.Context, sender chan<- string, input string, wordsPer
 	close(sender)
 }
 
-func receiveOutput(ctx context.Context, receiver <-chan krs.PackMessage, audioSamples *[]float32, stdoutOutput bool) {
+func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack, audioSamples *[]float32, stdoutOutput bool) {
 	var (
-		receivedMsgPack krs.PackMessage
+		receivedMsgPack krs.MessagePack
 		open            bool
 		err             error
 	)
@@ -133,9 +133,9 @@ func receiveOutput(ctx context.Context, receiver <-chan krs.PackMessage, audioSa
 				return
 			}
 			switch msgPackTyped := receivedMsgPack.(type) {
-			case krs.PackMessageText:
+			case krs.MessagePackText:
 				fmt.Fprintf(os.Stderr, "%s ", msgPackTyped.Text)
-			case krs.PackMessageAudio:
+			case krs.MessagePackAudio:
 				if stdoutOutput {
 					if err = binary.Write(os.Stdout, binary.LittleEndian, msgPackTyped.PCM); err != nil {
 						panic(err)

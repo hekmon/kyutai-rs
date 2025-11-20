@@ -57,7 +57,7 @@ func (client *TTSClient) Connect(ctx context.Context) (ttsc TTSConnection, err e
 	}
 	// Prepare the channels
 	ttsc.writerChan = make(chan string)
-	ttsc.readerChan = make(chan PackMessage)
+	ttsc.readerChan = make(chan MessagePack)
 	// Start workers
 	ttsc.workers, ttsc.workersCtx = errgroup.WithContext(ctx)
 	ttsc.workers.Go(ttsc.writer)
@@ -70,7 +70,7 @@ type TTSConnection struct {
 	workers    *errgroup.Group
 	workersCtx context.Context
 	writerChan chan string
-	readerChan chan PackMessage
+	readerChan chan MessagePack
 }
 
 func (ttsc *TTSConnection) GetContext() context.Context {
@@ -81,7 +81,7 @@ func (ttsc *TTSConnection) GetWriteChan() chan<- string {
 	return ttsc.writerChan
 }
 
-func (ttsc *TTSConnection) GetReadChan() <-chan PackMessage {
+func (ttsc *TTSConnection) GetReadChan() <-chan MessagePack {
 	return ttsc.readerChan
 }
 
@@ -105,8 +105,8 @@ func (ttsc *TTSConnection) writer() (err error) {
 		case input, open = <-ttsc.writerChan:
 			// Prepare the pack message
 			if open {
-				msg := PackMessageText{
-					Type: PackMessageTypeText,
+				msg := MessagePackText{
+					Type: MessagePackTypeText,
 					Text: input,
 				}
 				if payload, err = msg.MarshalMsg(nil); err != nil {
@@ -114,8 +114,8 @@ func (ttsc *TTSConnection) writer() (err error) {
 					return
 				}
 			} else {
-				msg := PackMessageHeader{
-					Type: PackMessageTypeEoS,
+				msg := MessagePackHeader{
+					Type: MessagePackTypeEoS,
 				}
 				if payload, err = msg.MarshalMsg(nil); err != nil {
 					err = fmt.Errorf("failed to marshal message pack: %w", err)
@@ -141,7 +141,7 @@ func (ttsc *TTSConnection) reader() (err error) {
 	var (
 		msgType websocket.MessageType
 		payload []byte
-		msgPack PackMessageHeader
+		msgPack MessagePackHeader
 	)
 	for {
 		// Read a message on the websocket connection
@@ -167,15 +167,15 @@ func (ttsc *TTSConnection) reader() (err error) {
 			}
 			// Unmarshal in the correct type and send it
 			switch msgPack.Type {
-			case PackMessageTypeText:
-				var msgPackText PackMessageText
+			case MessagePackTypeText:
+				var msgPackText MessagePackText
 				if _, err = msgPackText.UnmarshalMsg(payload); err != nil {
 					err = fmt.Errorf("failed to unmarshal the message pack: %w", err)
 					return
 				}
 				ttsc.readerChan <- msgPackText
-			case PackMessageTypeAudio:
-				var msgPackAudio PackMessageAudio
+			case MessagePackTypeAudio:
+				var msgPackAudio MessagePackAudio
 				if _, err = msgPackAudio.UnmarshalMsg(payload); err != nil {
 					err = fmt.Errorf("failed to unmarshal the message pack: %w", err)
 					return
