@@ -13,7 +13,6 @@ import (
 
 	"github.com/go-audio/wav"
 	krs "github.com/hekmon/kyutai-rs"
-	"golang.org/x/sync/errgroup"
 	"golang.org/x/time/rate"
 )
 
@@ -42,33 +41,28 @@ func main() {
 
 	// Open a connection
 	fmt.Printf("Opening a connection...")
-	ttsConn, err := sttClient.Connect(context.Background())
+	sttConn, err := sttClient.Connect(context.Background())
 	if err != nil {
 		panic(err)
 	}
+	defer func() {
+		// Wait until the connection is done and collect error if any
+		if err = sttConn.Done(); err != nil {
+			panic(err)
+		}
+	}()
 	fmt.Println(" connected.")
 
-	// Prepare our 2 independants write/read workers
+	// Start processing input and output independently
 	startSignal := make(chan any)
-	workers := new(errgroup.Group)
-	workers.Go(func() error {
-		receiveOutput(ttsConn.GetContext(), ttsConn.GetReadChan(), startSignal)
-		return nil
-	})
-	workers.Go(func() error {
-		return sendInput(ttsConn.GetContext(), ttsConn.GetWriteChan(), *input, startSignal)
-	})
-	if err = workers.Wait(); err != nil {
-		panic(err)
-	}
-
-	// Wait until the connection is done and collect error if any
-	if err = ttsConn.Done(); err != nil {
+	go receiveOutput(sttConn.GetContext(), sttConn.GetReadChan(), startSignal)
+	if err = sendInput(sttConn.GetContext(), sttConn.GetWriteChan(), *input, startSignal); err != nil {
 		panic(err)
 	}
 }
 
 func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack, sendSignal chan any) {
+	defer fmt.Println()
 	var (
 		receivedMsgPack krs.MessagePack
 		open            bool
@@ -81,7 +75,11 @@ func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack, sendSig
 		case receivedMsgPack, open = <-receiver:
 			if !open {
 				// End of server stream
-				fmt.Println()
+				// Actually there is high chance we will exit because of ctx.Done():
+				// Once the connection sender and receiver are both done, the connection context is canceled
+				// So this is a race within the go runtime:
+				// is the channel will be closed and read here first
+				// or the connection context canceled and read here?
 				return
 			}
 			switch typed := receivedMsgPack.(type) {
@@ -102,7 +100,6 @@ func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack, sendSig
 }
 
 func sendInput(ctx context.Context, sender chan<- []float32, input string, startSignal chan any) (err error) {
-	defer close(sender) // Signal the connection we have finished submitting text by closing the sender channel
 	// Wait for the server to be ready to process audio
 	select {
 	case <-ctx.Done():
@@ -111,6 +108,7 @@ func sendInput(ctx context.Context, sender chan<- []float32, input string, start
 		// continue
 	}
 	// Process input
+	defer close(sender) // Signal the connection we have finished submitting text by closing the sender channel
 	if input == "-" {
 		return sendInputStdin(ctx, sender)
 	}
@@ -147,7 +145,7 @@ func sendInputStdin(ctx context.Context, sender chan<- []float32) (err error) {
 			return
 		case sender <- []float32{point}:
 			// inefficient but allows to respect the sample rate with the ratelimiter
-			// simulating real time audio feed
+			// simulating real time audio feed for the sake of the example
 		}
 	}
 }
@@ -184,7 +182,7 @@ func sendInputFile(ctx context.Context, sender chan<- []float32, input string) (
 			return
 		case sender <- []float32{point}:
 			// inefficient but allows to respect the sample rate with the ratelimiter
-			// simulating real time audio feed
+			// simulating real time audio feed for the sake of the example
 		}
 	}
 	return
