@@ -183,7 +183,7 @@ func (sttc *STTConnection) writer() (err error) {
 					err = fmt.Errorf("failed to send message: %w", err)
 					return
 				}
-				// Send some silence to flush upstream buffer until we received the stop marker
+				// Send some silence to flush upstream buffer until we received back the stop marker
 				ticker := time.NewTicker(time.Second)
 				defer ticker.Stop()
 				for {
@@ -296,7 +296,7 @@ func (sttc *STTConnection) reader() (err error) {
 					close(sttc.flushChan) // signal writer it can stop sending silence
 					draining = true       // switch ourself to draining mode
 				} else {
-					// custom marker, send it to the user
+					// custom user marker, send it back
 					sttc.readerChan <- msgPackMarker
 				}
 			default:
