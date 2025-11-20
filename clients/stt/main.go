@@ -11,9 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-audio/audio"
 	"github.com/go-audio/wav"
 	krs "github.com/hekmon/kyutai-rs"
 	"github.com/hekmon/liveprogress/v2"
+	"github.com/zeozeozeo/gomplerate"
 	"golang.org/x/time/rate"
 )
 
@@ -196,7 +198,7 @@ func sendInputFile(ctx context.Context, sender chan<- []float32, input string) (
 		duration     time.Duration
 		point        float32
 	)
-	if audioSamples, duration, err = readWaveFileAt24kHz(input); err != nil {
+	if audioSamples, duration, err = extractAudioSamplesFromWave(input); err != nil {
 		err = fmt.Errorf("failed to read wave file: %w", err)
 		return
 	}
@@ -227,7 +229,7 @@ func sendInputFile(ctx context.Context, sender chan<- []float32, input string) (
 	return
 }
 
-func readWaveFileAt24kHz(filename string) (audioSamples []float32, duration time.Duration, err error) {
+func extractAudioSamplesFromWave(filename string) (audioSamples []float32, duration time.Duration, err error) {
 	// Open file
 	fd, err := os.Open(filename)
 	if err != nil {
@@ -239,12 +241,6 @@ func readWaveFileAt24kHz(filename string) (audioSamples []float32, duration time
 	waveDecoder := wav.NewDecoder(fd)
 	if !waveDecoder.IsValidFile() {
 		err = errors.New("invalid wav file")
-		return
-	}
-	if waveDecoder.SampleRate != krs.SampleRate {
-		err = fmt.Errorf("wav file must have a sample rate of %dHz, currently: %dHz",
-			krs.SampleRate, waveDecoder.SampleRate,
-		)
 		return
 	}
 	if duration, err = waveDecoder.Duration(); err != nil {
@@ -274,6 +270,45 @@ func readWaveFileAt24kHz(filename string) (audioSamples []float32, duration time
 		buffer.Data = filteredSamples
 		buffer.Format.NumChannels = krs.NumChannels
 	}
-	audioSamples = buffer.AsFloat32Buffer().Data
+	// Resample if necessary
+	if buffer.Format.SampleRate != krs.SampleRate {
+		var resampler *gomplerate.Resampler
+		if resampler, err = gomplerate.NewResampler(
+			buffer.Format.NumChannels,
+			buffer.Format.SampleRate,
+			krs.SampleRate,
+		); err != nil {
+			err = fmt.Errorf("failed to create resampler: %w", err)
+			return
+		}
+		original := buffer.AsFloatBuffer()
+		audioSamples = make([]float32, len(original.Data))
+		for index, sample := range resampler.ResampleFloat64(original.Data) {
+			audioSamples[index] = float32(sample)
+		}
+		//
+		var fd *os.File
+		if fd, err = os.Create("converted.wav"); err != nil {
+			return
+		}
+		defer fd.Close()
+		encoder := wav.NewEncoder(fd, krs.SampleRate, 16, 1, 1)
+		newBuff := audio.Float32Buffer{
+			Format: &audio.Format{
+				NumChannels: krs.NumChannels,
+				SampleRate:  krs.SampleRate,
+			},
+			Data:           audioSamples,
+			SourceBitDepth: 16,
+		}
+		if err = encoder.Write(newBuff.AsIntBuffer()); err != nil {
+			err = fmt.Errorf("write error: %w", err)
+			return
+		}
+		encoder.Close()
+		return
+	} else {
+		audioSamples = buffer.AsFloat32Buffer().Data
+	}
 	return
 }
