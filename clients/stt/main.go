@@ -72,9 +72,9 @@ func main() {
 	}()
 
 	// Start processing input and output independently
-	startSignal := make(chan any)
-	go receiveOutput(sttConn.GetContext(), sttConn.GetReadChan(), startSignal)
-	if err = sendInput(sttConn.GetContext(), sttConn.GetWriteChan(), audioSamples, startSignal); err != nil {
+	coms := make(chan LatencyMarker)
+	go receiveOutput(&sttConn, coms)
+	if err = sendInput(&sttConn, coms, audioSamples); err != nil {
 		panic(err)
 	}
 
@@ -200,7 +200,10 @@ func writeConvertedWaveFile(filename string, audioSamples []float32, bitdepth in
 	return
 }
 
-func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack, sendSignal chan any) {
+func receiveOutput(conn *krs.STTConnection, coms chan LatencyMarker) {
+	ctx := conn.GetContext()
+	receiver := conn.GetReadChan()
+	// Transcripted text
 	var text strings.Builder
 	defer func() {
 		// Final print before removing live line
@@ -209,13 +212,14 @@ func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack, sendSig
 	// Prepare the dynamic lines
 	//// Stats
 	var (
-		bufferDelay      time.Duration
 		currentTimestamp time.Duration
+		latency          time.Duration
+		bufferDelay      time.Duration
 		steps            int
 	)
 	statsLine := liveprogress.AddCustomLine(func() string {
-		return fmt.Sprintf("Current timestamp: %s | Upstream buffer delay: %s | Server steps: %d",
-			currentTimestamp, bufferDelay, steps,
+		return fmt.Sprintf("Current timestamp: %s | Latency: %s | Upstream buffer delay: %s | Server steps: %d",
+			currentTimestamp, latency, bufferDelay, steps,
 		)
 	})
 	defer liveprogress.RemoveCustomLine(statsLine)
@@ -228,7 +232,9 @@ func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack, sendSig
 	var (
 		receivedMsgPack krs.MessagePack
 		open            bool
+		latmark         LatencyMarker
 	)
+	latmarks := make(map[int64]time.Time)
 	for {
 		select {
 		case <-ctx.Done():
@@ -247,7 +253,7 @@ func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack, sendSig
 			switch msgPackTyped := receivedMsgPack.(type) {
 			case krs.MessagePackHeader:
 				if msgPackTyped.Type == krs.MessagePackTypeReady {
-					close(sendSignal) // inform writer it can start sending audio
+					coms <- LatencyMarker{} // send an ID 0 marker as a start signal
 				}
 			case krs.MessagePackStep:
 				bufferDelay = msgPackTyped.BufferDelay()
@@ -260,21 +266,32 @@ func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack, sendSig
 				currentTimestamp = msgPackTyped.StartTimeDuration()
 			case krs.MessagePackWordEnd:
 				currentTimestamp = msgPackTyped.StopTimeDuration()
+			case krs.MessagePackMarker:
+				// Compute duration between the marker time and the received time
+				latency = time.Since(latmarks[msgPackTyped.ID]).Round(time.Millisecond)
 			default:
 				fmt.Fprintf(liveprogress.Bypass(), "Received msg pack type %q\n", receivedMsgPack.MessageType())
 			}
+		case latmark = <-coms:
+			// Register the marker sender gave us
+			latmarks[latmark.ID] = latmark.Time
 		}
 	}
 }
 
-func sendInput(ctx context.Context, sender chan<- []float32, audioSamples []float32, startSignal chan any) (err error) {
+func sendInput(conn *krs.STTConnection, coms chan LatencyMarker, audioSamples []float32) (err error) {
+	ctx := conn.GetContext()
+	sender := conn.GetWriteChan()
 	defer close(sender) // Signal the connection we have finished submitting text by closing the sender channel
 	// Wait for the server to be ready to process audio
 	select {
 	case <-ctx.Done():
 		return
-	case <-startSignal:
-		// continue
+	case rep := <-coms:
+		if rep.ID != 0 {
+			err = fmt.Errorf("unexpected latency marker as start signal: %d", rep.ID)
+			return
+		}
 	}
 	// Show progress
 	sendingBar := liveprogress.AddBar(
@@ -294,6 +311,7 @@ func sendInput(ctx context.Context, sender chan<- []float32, audioSamples []floa
 	var (
 		bufferSize int
 		buffer     []float32
+		latmark    LatencyMarker
 	)
 	for {
 		// Extract 0.1 second of audio samples maximum
@@ -317,7 +335,24 @@ func sendInput(ctx context.Context, sender chan<- []float32, audioSamples []floa
 				sendingBar.CurrentAdd(uint64(bufferSize))
 			}
 		}
+		// Send a latency marker
+		if latmark.ID, err = conn.SendMarker(); err != nil {
+			err = fmt.Errorf("failed to send latency marker: %w", err)
+			return
+		}
+		latmark.Time = time.Now()
+		select {
+		case <-ctx.Done():
+			// connection context canceled,
+			return
+		case coms <- latmark:
+		}
 	}
 	fmt.Fprintln(liveprogress.Bypass(), "Audio fully sent")
 	return
+}
+
+type LatencyMarker struct {
+	ID   int64
+	Time time.Time
 }
