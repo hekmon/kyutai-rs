@@ -215,7 +215,7 @@ func receiveOutput(conn *krs.STTConnection, coms chan LatencyMarker) {
 		}
 		avg /= int64(len(latencies))
 		// Final print before removing live line
-		fmt.Fprintf(liveprogress.Bypass(), "Average latency: %s\nTranscripted text:\n%s\n",
+		fmt.Fprintf(liveprogress.Bypass(), "\nAverage latency: %s\nTranscripted text:\n%s\n",
 			time.Duration(avg).Round(time.Millisecond), text.String(),
 		)
 	}()
@@ -355,10 +355,10 @@ func sendInput(conn *krs.STTConnection, coms chan LatencyMarker, audioSamples []
 		latmark.Time = time.Now()
 		select {
 		case <-ctx.Done():
-			// connection context canceled,
+			// connection context canceled
 			return
 		case coms <- latmark:
-			// sent marker with time creation to receiver for latency computation
+			// send marker with time creation to receiver for latency computation
 		}
 	}
 	fmt.Fprintln(liveprogress.Bypass(), "Audio fully sent")
