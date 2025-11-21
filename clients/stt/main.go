@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-audio/audio"
 	"github.com/go-audio/wav"
 	krs "github.com/hekmon/kyutai-rs"
 	"github.com/hekmon/liveprogress/v2"
@@ -80,10 +79,11 @@ func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack, sendSig
 	var (
 		bufferDelay      time.Duration
 		currentTimestamp time.Duration
+		steps            int
 	)
 	statsLine := liveprogress.AddCustomLine(func() string {
-		return fmt.Sprintf("Current timestamp: %s (upstream buffer delay: %s)",
-			currentTimestamp, bufferDelay,
+		return fmt.Sprintf("Current timestamp: %s | Upstream buffer delay: %s | Server steps: %d",
+			currentTimestamp, bufferDelay, steps,
 		)
 	})
 	defer liveprogress.RemoveCustomLine(statsLine)
@@ -125,6 +125,7 @@ func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack, sendSig
 				}
 			case krs.MessagePackStep:
 				bufferDelay = msgPackTyped.BufferDelay()
+				steps = msgPackTyped.StepIndex
 			case krs.MessagePackWord:
 				if text.Len() > 0 {
 					text.WriteRune(' ')
@@ -134,7 +135,7 @@ func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack, sendSig
 			case krs.MessagePackWordEnd:
 				currentTimestamp = msgPackTyped.StopTimeDuration()
 			default:
-				fmt.Printf("Received msg pack type %q\n", receivedMsgPack.MessageType())
+				fmt.Fprintf(liveprogress.Bypass(), "Received msg pack type %q\n", receivedMsgPack.MessageType())
 			}
 		}
 	}
@@ -202,9 +203,22 @@ func sendInputFile(ctx context.Context, sender chan<- []float32, input string) (
 		err = fmt.Errorf("failed to read wave file: %w", err)
 		return
 	}
-	fmt.Printf("audio file duration: %s (%d samples @%dHz)\n",
+	fmt.Fprintf(liveprogress.Bypass(), "Audio file duration: %s (%d samples @%dHz)\n",
 		&duration, len(audioSamples), krs.SampleRate,
 	)
+	// Show progress
+	defer fmt.Fprintln(liveprogress.Bypass(), "audio fully sent")
+	sendingBar := liveprogress.AddBar(
+		liveprogress.WithTotal(uint64(len(audioSamples))),
+		liveprogress.WithAppendPercent(liveprogress.BaseStyle()),
+		liveprogress.WithPrependDecorator(func(bar *liveprogress.Bar) string {
+			return "Sending audio "
+		}),
+		liveprogress.WithAppendDecorator(func(bar *liveprogress.Bar) string {
+			return fmt.Sprintf(" | %d/%d samples sent", bar.Current(), bar.Total())
+		}),
+	)
+	defer liveprogress.RemoveBar(sendingBar)
 	// Create the rate limiter, simulating realtime ingestion
 	limiter := rate.NewLimiter(rate.Limit(krs.SampleRate), 1)
 	for _, point = range audioSamples {
@@ -224,6 +238,7 @@ func sendInputFile(ctx context.Context, sender chan<- []float32, input string) (
 		case sender <- []float32{point}:
 			// inefficient but allows to respect the sample rate with the ratelimiter
 			// simulating real time audio feed for the sake of the example
+			sendingBar.CurrentIncrement()
 		}
 	}
 	return
@@ -261,10 +276,10 @@ func extractAudioSamplesFromWave(filename string) (audioSamples []float32, durat
 	case krs.NumChannels:
 		// ok
 	default:
-		// too many channels, let's filter out
-		filteredSamples := make([]int, len(buffer.Data)/krs.NumChannels)
-		for i := range len(buffer.Data) / krs.NumChannels {
-			filteredSamples[i] = buffer.Data[i*krs.NumChannels]
+		// too many channels, let's keep the first one (mono needed)
+		filteredSamples := make([]int, len(buffer.Data)/buffer.Format.NumChannels)
+		for i := range len(buffer.Data) / buffer.Format.NumChannels {
+			filteredSamples[i] = buffer.Data[i*buffer.Format.NumChannels]
 		}
 		// done
 		buffer.Data = filteredSamples
@@ -282,31 +297,33 @@ func extractAudioSamplesFromWave(filename string) (audioSamples []float32, durat
 			return
 		}
 		original := buffer.AsFloatBuffer()
-		audioSamples = make([]float32, len(original.Data))
-		for index, sample := range resampler.ResampleFloat64(original.Data) {
-			audioSamples[index] = float32(sample)
+		audioSamples = make([]float32, 0, int((float64(buffer.Format.SampleRate)*duration.Seconds())/float64(krs.SampleRate)))
+		for _, sample := range resampler.ResampleFloat64(original.Data) {
+			audioSamples = append(audioSamples, float32(sample))
 		}
-		//
-		var fd *os.File
-		if fd, err = os.Create("converted.wav"); err != nil {
-			return
-		}
-		defer fd.Close()
-		encoder := wav.NewEncoder(fd, krs.SampleRate, 16, 1, 1)
-		newBuff := audio.Float32Buffer{
-			Format: &audio.Format{
-				NumChannels: krs.NumChannels,
-				SampleRate:  krs.SampleRate,
-			},
-			Data:           audioSamples,
-			SourceBitDepth: 16,
-		}
-		if err = encoder.Write(newBuff.AsIntBuffer()); err != nil {
-			err = fmt.Errorf("write error: %w", err)
-			return
-		}
-		encoder.Close()
-		return
+		// // output resampled file for debug
+		// var fd *os.File
+		// if fd, err = os.Create("converted.wav"); err != nil {
+		// 	return
+		// }
+		// defer fd.Close()
+		// encoder := wav.NewEncoder(fd, krs.SampleRate, buffer.SourceBitDepth, krs.NumChannels, 1)
+		// newBuff := audio.Float32Buffer{
+		// 	Format: &audio.Format{
+		// 		NumChannels: krs.NumChannels,
+		// 		SampleRate:  krs.SampleRate,
+		// 	},
+		// 	Data:           audioSamples,
+		// 	SourceBitDepth: buffer.SourceBitDepth,
+		// }
+		// if err = encoder.Write(newBuff.AsIntBuffer()); err != nil {
+		// 	err = fmt.Errorf("write error: %w", err)
+		// 	return
+		// }
+		// if err = encoder.Close(); err != nil {
+		// 	err = fmt.Errorf("wave encoder flush error: %w", err)
+		// 	return
+		// }
 	} else {
 		audioSamples = buffer.AsFloat32Buffer().Data
 	}
