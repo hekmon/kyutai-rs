@@ -47,12 +47,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	defer func() {
-		// Wait until the connection is done and collect error if any
-		if err = sttConn.Done(); err != nil {
-			panic(err)
-		}
-	}()
 	fmt.Println(" connected.")
 
 	// Prepare the dynamic output
@@ -69,6 +63,11 @@ func main() {
 	startSignal := make(chan any)
 	go receiveOutput(sttConn.GetContext(), sttConn.GetReadChan(), startSignal)
 	if err = sendInput(sttConn.GetContext(), sttConn.GetWriteChan(), *input, startSignal); err != nil {
+		panic(err)
+	}
+
+	// Wait until the connection is done and collect error if any
+	if err = sttConn.Done(); err != nil {
 		panic(err)
 	}
 }
@@ -197,7 +196,6 @@ func sendInputFile(ctx context.Context, sender chan<- []float32, input string) (
 	var (
 		audioSamples []float32
 		duration     time.Duration
-		point        float32
 	)
 	if audioSamples, duration, err = extractAudioSamplesFromWave(input); err != nil {
 		err = fmt.Errorf("failed to read wave file: %w", err)
@@ -207,7 +205,7 @@ func sendInputFile(ctx context.Context, sender chan<- []float32, input string) (
 		&duration, len(audioSamples), krs.SampleRate,
 	)
 	// Show progress
-	defer fmt.Fprintln(liveprogress.Bypass(), "audio fully sent")
+	defer fmt.Fprintln(liveprogress.Bypass(), "Audio fully sent")
 	sendingBar := liveprogress.AddBar(
 		liveprogress.WithTotal(uint64(len(audioSamples))),
 		liveprogress.WithAppendPercent(liveprogress.BaseStyle()),
@@ -219,26 +217,34 @@ func sendInputFile(ctx context.Context, sender chan<- []float32, input string) (
 		}),
 	)
 	defer liveprogress.RemoveBar(sendingBar)
-	// Create the rate limiter, simulating realtime ingestion
-	limiter := rate.NewLimiter(rate.Limit(krs.SampleRate), 1)
-	for _, point = range audioSamples {
-		if err = limiter.Wait(ctx); err != nil {
-			if errors.Is(err, context.Canceled) {
-				// the real error will be on Done()
-				err = nil
-			} else {
-				err = fmt.Errorf("rate limiter wait failed: %w", err)
-			}
-			return
+	// Send 0.1 second worth of audio samples every 0.1 seconds
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	var (
+		bufferSize int
+		buffer     []float32
+	)
+	for {
+		// Extract 0.1 second of audio samples maximum
+		if bufferSize = min(krs.SampleRate/10, len(audioSamples)); bufferSize == 0 {
+			break
 		}
+		buffer = audioSamples[:bufferSize]
+		audioSamples = audioSamples[bufferSize:]
+		// Wait for the ticker
 		select {
 		case <-ctx.Done():
-			// connection context canceled, stop using the sender channel
+			// connection context canceled, no need to wait for the tick
 			return
-		case sender <- []float32{point}:
-			// inefficient but allows to respect the sample rate with the ratelimiter
-			// simulating real time audio feed for the sake of the example
-			sendingBar.CurrentIncrement()
+		case <-ticker.C:
+			// it's time, send the audio samples
+			select {
+			case <-ctx.Done():
+				// connection context canceled, stop using the sender channel
+				return
+			case sender <- buffer:
+				sendingBar.CurrentAdd(uint64(bufferSize))
+			}
 		}
 	}
 	return
