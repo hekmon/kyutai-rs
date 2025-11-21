@@ -204,10 +204,20 @@ func receiveOutput(conn *krs.STTConnection, coms chan LatencyMarker) {
 	ctx := conn.GetContext()
 	receiver := conn.GetReadChan()
 	// Transcripted text
-	var text strings.Builder
+	var (
+		text      strings.Builder
+		latencies []time.Duration
+	)
 	defer func() {
+		var avg int64
+		for _, latency := range latencies {
+			avg += int64(latency)
+		}
+		avg /= int64(len(latencies))
 		// Final print before removing live line
-		fmt.Fprintf(liveprogress.Bypass(), "Transcripted text:\n%s\n", text.String())
+		fmt.Fprintf(liveprogress.Bypass(), "Average latency: %s\nTranscripted text:\n%s\n",
+			time.Duration(avg).Round(time.Millisecond), text.String(),
+		)
 	}()
 	// Prepare the dynamic lines
 	//// Stats
@@ -269,6 +279,8 @@ func receiveOutput(conn *krs.STTConnection, coms chan LatencyMarker) {
 			case krs.MessagePackMarker:
 				// Compute duration between the marker time and the received time
 				latency = time.Since(latmarks[msgPackTyped.ID]).Round(time.Millisecond)
+				latencies = append(latencies, latency)
+				delete(latmarks, msgPackTyped.ID)
 			default:
 				fmt.Fprintf(liveprogress.Bypass(), "Received msg pack type %q\n", receivedMsgPack.MessageType())
 			}
@@ -346,6 +358,7 @@ func sendInput(conn *krs.STTConnection, coms chan LatencyMarker, audioSamples []
 			// connection context canceled,
 			return
 		case coms <- latmark:
+			// sent marker with time creation to receiver for latency computation
 		}
 	}
 	fmt.Fprintln(liveprogress.Bypass(), "Audio fully sent")
