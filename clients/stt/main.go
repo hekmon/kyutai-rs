@@ -160,10 +160,10 @@ func readAudioSamplesFromWaveFile(filename string) (audioSamples []float32, err 
 		for _, sample := range resampler.ResampleFloat64(buffer.AsFloatBuffer().Data) {
 			audioSamples = append(audioSamples, float32(sample))
 		}
-		// if err = writeConvertedWaveFile("converted.wav", audioSamples, 16); err != nil {
-		// 	err = fmt.Errorf("failed to write converted file: %w", err)
-		// 	return
-		// }
+		if err = writeConvertedWaveFile("converted.wav", audioSamples, 16); err != nil {
+			err = fmt.Errorf("failed to write converted file: %w", err)
+			return
+		}
 	} else {
 		audioSamples = buffer.AsFloat32Buffer().Data
 	}
@@ -201,6 +201,11 @@ func writeConvertedWaveFile(filename string, audioSamples []float32, bitdepth in
 }
 
 func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack, sendSignal chan any) {
+	var text strings.Builder
+	defer func() {
+		// Final print before removing live line
+		fmt.Fprintf(liveprogress.Bypass(), "Transcripted text:\n%s\n", text.String())
+	}()
 	// Prepare the dynamic lines
 	//// Stats
 	var (
@@ -215,16 +220,10 @@ func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack, sendSig
 	})
 	defer liveprogress.RemoveCustomLine(statsLine)
 	//// Text
-	var text strings.Builder
 	textLine := liveprogress.AddCustomLine(func() string {
 		return text.String()
 	})
 	defer liveprogress.RemoveCustomLine(textLine)
-	//// final
-	defer func() {
-		// Final print before removing live line
-		fmt.Fprintln(liveprogress.Bypass(), text.String())
-	}()
 	// Process output
 	var (
 		receivedMsgPack krs.MessagePack
@@ -282,7 +281,7 @@ func sendInput(ctx context.Context, sender chan<- []float32, audioSamples []floa
 		liveprogress.WithTotal(uint64(len(audioSamples))),
 		liveprogress.WithAppendPercent(liveprogress.BaseStyle()),
 		liveprogress.WithPrependDecorator(func(bar *liveprogress.Bar) string {
-			return "Sending audio "
+			return "Streaming audio samples "
 		}),
 		liveprogress.WithAppendDecorator(func(bar *liveprogress.Bar) string {
 			return fmt.Sprintf(" | %d/%d samples sent", bar.Current(), bar.Total())
