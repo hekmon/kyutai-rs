@@ -177,6 +177,9 @@ func (ttsc *TTSConnection) reader() (err error) {
 			}
 			// Unmarshal in the correct type and send it
 			switch msgPack.Type {
+			case MessagePackTypeReady:
+				// no extra fields
+				ttsc.readerChan <- msgPack
 			case MessagePackTypeText:
 				var msgPackText MessagePackText
 				if _, err = msgPackText.UnmarshalMsg(payload); err != nil {
