@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -97,10 +96,7 @@ func (ttsc *TTSConnection) Done() (err error) {
 		_ = ttsc.conn.Close(code, "") // discard any closing error as we want to keep the initial stop error
 		return
 	}
-	if err = ttsc.conn.Close(websocket.StatusNormalClosure, ""); errors.Is(err, io.EOF) {
-		// dunno why we can receive EOF here
-		err = nil
-	}
+	// else no need to close the websocket as the server will close it as soon as the last audio bit has been received
 	return
 }
 
