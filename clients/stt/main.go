@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-audio/audio"
 	"github.com/go-audio/wav"
 	krs "github.com/hekmon/kyutai-rs"
 	"github.com/hekmon/liveprogress/v2"
 	"github.com/zeozeozeo/gomplerate"
-	"golang.org/x/time/rate"
 )
 
 const (
@@ -41,13 +41,25 @@ func main() {
 		panic(err)
 	}
 
+	// Gather the audio samples
+	var audioSamples []float32
+	if *input == "-" {
+		if audioSamples, err = readAudioSamplesFromStdin(); err != nil {
+			panic(err)
+		}
+	} else {
+		if audioSamples, err = readAudioSamplesFromWaveFile(*input); err != nil {
+			panic(err)
+		}
+	}
+
 	// Open a connection
 	fmt.Printf("Opening a connection...")
 	sttConn, err := sttClient.Connect(context.Background())
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(" connected.")
+	fmt.Println(" connected")
 
 	// Prepare the dynamic output
 	if err = liveprogress.Start(); err != nil {
@@ -62,7 +74,7 @@ func main() {
 	// Start processing input and output independently
 	startSignal := make(chan any)
 	go receiveOutput(sttConn.GetContext(), sttConn.GetReadChan(), startSignal)
-	if err = sendInput(sttConn.GetContext(), sttConn.GetWriteChan(), *input, startSignal); err != nil {
+	if err = sendInput(sttConn.GetContext(), sttConn.GetWriteChan(), audioSamples, startSignal); err != nil {
 		panic(err)
 	}
 
@@ -70,6 +82,122 @@ func main() {
 	if err = sttConn.Done(); err != nil {
 		panic(err)
 	}
+}
+
+func readAudioSamplesFromStdin() (audioSamples []float32, err error) {
+	var point float32
+	fmt.Print("Reading audio samples from stdin...")
+	for {
+		if err = binary.Read(os.Stdin, binary.LittleEndian, &point); err != nil {
+			if errors.Is(err, io.EOF) {
+				err = nil
+				break
+			}
+			fmt.Println()
+			err = fmt.Errorf("failed to read binary float32 from stdin: %w", err)
+			return
+		}
+		audioSamples = append(audioSamples, point)
+	}
+	fmt.Printf(" %d samples read\n", len(audioSamples))
+	return
+}
+
+func readAudioSamplesFromWaveFile(filename string) (audioSamples []float32, err error) {
+	// Open file
+	fd, err := os.Open(filename)
+	if err != nil {
+		err = fmt.Errorf("failed to open file: %w", err)
+		return
+	}
+	defer fd.Close()
+	// Create the wav decoder and verify information
+	waveDecoder := wav.NewDecoder(fd)
+	if !waveDecoder.IsValidFile() {
+		err = errors.New("invalid wav file")
+		return
+	}
+	duration, err := waveDecoder.Duration()
+	if err != nil {
+		err = fmt.Errorf("failed to read wav file duration: %w", err)
+		return
+	}
+	// Extract PCM
+	buffer, err := waveDecoder.FullPCMBuffer()
+	if err != nil {
+		err = fmt.Errorf("failed to extract PCM from wav file: %w", err)
+		return
+	}
+	// We need mono
+	switch buffer.Format.NumChannels {
+	case 0:
+		err = errors.New("no channels found")
+		return
+	case krs.NumChannels:
+		// ok
+	default:
+		// too many channels, let's keep the first one (mono needed)
+		filteredSamples := make([]int, len(buffer.Data)/buffer.Format.NumChannels)
+		for i := range len(buffer.Data) / buffer.Format.NumChannels {
+			filteredSamples[i] = buffer.Data[i*buffer.Format.NumChannels]
+		}
+		// done
+		buffer.Data = filteredSamples
+		buffer.Format.NumChannels = krs.NumChannels
+	}
+	// Resample if necessary
+	if buffer.Format.SampleRate != krs.SampleRate {
+		var resampler *gomplerate.Resampler
+		if resampler, err = gomplerate.NewResampler(
+			buffer.Format.NumChannels,
+			buffer.Format.SampleRate,
+			krs.SampleRate,
+		); err != nil {
+			err = fmt.Errorf("failed to create resampler: %w", err)
+			return
+		}
+		audioSamples = make([]float32, 0, int((float64(buffer.Format.SampleRate)*duration.Seconds())/float64(krs.SampleRate)))
+		for _, sample := range resampler.ResampleFloat64(buffer.AsFloatBuffer().Data) {
+			audioSamples = append(audioSamples, float32(sample))
+		}
+		// if err = writeConvertedWaveFile("converted.wav", audioSamples, 16); err != nil {
+		// 	err = fmt.Errorf("failed to write converted file: %w", err)
+		// 	return
+		// }
+	} else {
+		audioSamples = buffer.AsFloat32Buffer().Data
+	}
+	fmt.Printf("Audio file duration: %s (%d samples @%dHz)\n",
+		duration, len(audioSamples), krs.SampleRate,
+	)
+	return
+}
+
+func writeConvertedWaveFile(filename string, audioSamples []float32, bitdepth int) (err error) {
+	// output resampled file for debug
+	var fd *os.File
+	if fd, err = os.Create(filename); err != nil {
+		return
+	}
+	defer fd.Close()
+	encoder := wav.NewEncoder(fd, krs.SampleRate, bitdepth, krs.NumChannels, 1)
+	newBuff := audio.Float32Buffer{
+		Format: &audio.Format{
+			NumChannels: krs.NumChannels,
+			SampleRate:  krs.SampleRate,
+		},
+		Data:           audioSamples,
+		SourceBitDepth: bitdepth,
+	}
+	if err = encoder.Write(newBuff.AsIntBuffer()); err != nil {
+		err = fmt.Errorf("write error: %w", err)
+		return
+	}
+	if err = encoder.Close(); err != nil {
+		err = fmt.Errorf("wave encoder flush error: %w", err)
+		return
+	}
+	return
 }
 
 func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack, sendSignal chan any) {
@@ -140,7 +268,8 @@ func receiveOutput(ctx context.Context, receiver <-chan krs.MessagePack, sendSig
 	}
 }
 
-func sendInput(ctx context.Context, sender chan<- []float32, input string, startSignal chan any) (err error) {
+func sendInput(ctx context.Context, sender chan<- []float32, audioSamples []float32, startSignal chan any) (err error) {
+	defer close(sender) // Signal the connection we have finished submitting text by closing the sender channel
 	// Wait for the server to be ready to process audio
 	select {
 	case <-ctx.Done():
@@ -148,64 +277,7 @@ func sendInput(ctx context.Context, sender chan<- []float32, input string, start
 	case <-startSignal:
 		// continue
 	}
-	// Process input
-	defer close(sender) // Signal the connection we have finished submitting text by closing the sender channel
-	if input == "-" {
-		return sendInputStdin(ctx, sender)
-	}
-	return sendInputFile(ctx, sender, input)
-}
-
-func sendInputStdin(ctx context.Context, sender chan<- []float32) (err error) {
-	var (
-		point float32
-	)
-	// Create the rate limiter, simulating realtime ingestion
-	limiter := rate.NewLimiter(rate.Limit(krs.SampleRate), 1)
-	for {
-		if err = binary.Read(os.Stdin, binary.LittleEndian, &point); err != nil {
-			if errors.Is(err, io.EOF) {
-				err = nil
-			} else {
-				err = fmt.Errorf("failed to read binary float32 from stdin: %w", err)
-			}
-			return
-		}
-		if err = limiter.Wait(ctx); err != nil {
-			if errors.Is(err, context.Canceled) {
-				// the real error will be on Done()
-				err = nil
-			} else {
-				err = fmt.Errorf("rate limiter wait failed: %w", err)
-			}
-			return
-		}
-		select {
-		case <-ctx.Done():
-			// connection context canceled, stop using the sender channel
-			return
-		case sender <- []float32{point}:
-			// inefficient but allows to respect the sample rate with the ratelimiter
-			// simulating real time audio feed for the sake of the example
-		}
-	}
-}
-
-func sendInputFile(ctx context.Context, sender chan<- []float32, input string) (err error) {
-	// open wave file
-	var (
-		audioSamples []float32
-		duration     time.Duration
-	)
-	if audioSamples, duration, err = extractAudioSamplesFromWave(input); err != nil {
-		err = fmt.Errorf("failed to read wave file: %w", err)
-		return
-	}
-	fmt.Fprintf(liveprogress.Bypass(), "Audio file duration: %s (%d samples @%dHz)\n",
-		&duration, len(audioSamples), krs.SampleRate,
-	)
 	// Show progress
-	defer fmt.Fprintln(liveprogress.Bypass(), "Audio fully sent")
 	sendingBar := liveprogress.AddBar(
 		liveprogress.WithTotal(uint64(len(audioSamples))),
 		liveprogress.WithAppendPercent(liveprogress.BaseStyle()),
@@ -247,91 +319,6 @@ func sendInputFile(ctx context.Context, sender chan<- []float32, input string) (
 			}
 		}
 	}
-	return
-}
-
-func extractAudioSamplesFromWave(filename string) (audioSamples []float32, duration time.Duration, err error) {
-	// Open file
-	fd, err := os.Open(filename)
-	if err != nil {
-		err = fmt.Errorf("failed to open file: %w", err)
-		return
-	}
-	defer fd.Close()
-	// Create the wav decoder and verify information
-	waveDecoder := wav.NewDecoder(fd)
-	if !waveDecoder.IsValidFile() {
-		err = errors.New("invalid wav file")
-		return
-	}
-	if duration, err = waveDecoder.Duration(); err != nil {
-		err = fmt.Errorf("failed to read wav file duration: %w", err)
-		return
-	}
-	// Extract PCM
-	buffer, err := waveDecoder.FullPCMBuffer()
-	if err != nil {
-		err = fmt.Errorf("failed to extract PCM from wav file: %w", err)
-		return
-	}
-	// We need mono
-	switch buffer.Format.NumChannels {
-	case 0:
-		err = errors.New("no channels found")
-		return
-	case krs.NumChannels:
-		// ok
-	default:
-		// too many channels, let's keep the first one (mono needed)
-		filteredSamples := make([]int, len(buffer.Data)/buffer.Format.NumChannels)
-		for i := range len(buffer.Data) / buffer.Format.NumChannels {
-			filteredSamples[i] = buffer.Data[i*buffer.Format.NumChannels]
-		}
-		// done
-		buffer.Data = filteredSamples
-		buffer.Format.NumChannels = krs.NumChannels
-	}
-	// Resample if necessary
-	if buffer.Format.SampleRate != krs.SampleRate {
-		var resampler *gomplerate.Resampler
-		if resampler, err = gomplerate.NewResampler(
-			buffer.Format.NumChannels,
-			buffer.Format.SampleRate,
-			krs.SampleRate,
-		); err != nil {
-			err = fmt.Errorf("failed to create resampler: %w", err)
-			return
-		}
-		original := buffer.AsFloatBuffer()
-		audioSamples = make([]float32, 0, int((float64(buffer.Format.SampleRate)*duration.Seconds())/float64(krs.SampleRate)))
-		for _, sample := range resampler.ResampleFloat64(original.Data) {
-			audioSamples = append(audioSamples, float32(sample))
-		}
-		// // output resampled file for debug
-		// var fd *os.File
-		// if fd, err = os.Create("converted.wav"); err != nil {
-		// 	return
-		// }
-		// defer fd.Close()
-		// encoder := wav.NewEncoder(fd, krs.SampleRate, buffer.SourceBitDepth, krs.NumChannels, 1)
-		// newBuff := audio.Float32Buffer{
-		// 	Format: &audio.Format{
-		// 		NumChannels: krs.NumChannels,
-		// 		SampleRate:  krs.SampleRate,
-		// 	},
-		// 	Data:           audioSamples,
-		// 	SourceBitDepth: buffer.SourceBitDepth,
-		// }
-		// if err = encoder.Write(newBuff.AsIntBuffer()); err != nil {
-		// 	err = fmt.Errorf("write error: %w", err)
-		// 	return
-		// }
-		// if err = encoder.Close(); err != nil {
-		// 	err = fmt.Errorf("wave encoder flush error: %w", err)
-		// 	return
-		// }
-	} else {
-		audioSamples = buffer.AsFloat32Buffer().Data
-	}
+	fmt.Fprintln(liveprogress.Bypass(), "Audio fully sent")
 	return
 }
