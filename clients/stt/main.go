@@ -97,7 +97,11 @@ func readAudioSamplesFromStdin() (audioSamples []float32, err error) {
 		}
 		audioSamples = append(audioSamples, point)
 	}
-	fmt.Printf(" %d samples read\n", len(audioSamples))
+	fmt.Printf(" %d samples read (%s @%dHz)\n",
+		len(audioSamples),
+		time.Duration(len(audioSamples)/krs.SampleRate)*time.Second,
+		krs.SampleRate,
+	)
 	return
 }
 
