@@ -5,16 +5,15 @@ go 1.25.4
 replace github.com/hekmon/kyutai-rs => ../..
 
 require (
-	github.com/go-audio/audio v1.0.0
 	github.com/go-audio/wav v1.1.0
 	github.com/hekmon/kyutai-rs v1.0.0
 	github.com/hekmon/liveprogress/v2 v2.1.0
-	github.com/zeozeozeo/gomplerate v0.0.0-20250404113140-0fbb236df825
 )
 
 require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
+	github.com/go-audio/audio v1.0.0 // indirect
 	github.com/go-audio/riff v1.0.0 // indirect
 	github.com/hekmon/liveterm/v2 v2.5.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
