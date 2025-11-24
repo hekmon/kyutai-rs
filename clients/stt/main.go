@@ -43,11 +43,11 @@ func main() {
 	var audioSamples []float32
 	if *input == "-" {
 		if audioSamples, err = readAudioSamplesFromStdin(); err != nil {
-			panic(err)
+			panic(fmt.Sprintf("failed to read audio samples from stdin: %s", err))
 		}
 	} else {
 		if audioSamples, err = readAudioSamplesFromWaveFile(*input); err != nil {
-			panic(err)
+			panic(fmt.Sprintf("failed to read %q wave file: %s", *input, err))
 		}
 	}
 
