@@ -158,13 +158,13 @@ func (sttc *STTConnection) writer() (err error) {
 					buffer = buffer[FrameSize:]
 				}
 			} else {
-				// Flush out our buffer
-				for len(buffer) > 0 {
-					// fill buffer with silence
+				// Flush out our buffer if some samples remains
+				if len(buffer) > 0 {
+					// fill buffer with silence if needed
 					if len(buffer) < FrameSize {
 						buffer = append(buffer, make([]float32, FrameSize-len(buffer))...)
 					}
-					// send it
+					// send it (we should normally only have one frame to send here)
 					if err = sttc.send(&MessagePackAudio{
 						Type: MessagePackTypeAudio,
 						PCM:  buffer,
@@ -172,8 +172,6 @@ func (sttc *STTConnection) writer() (err error) {
 						err = fmt.Errorf("failed to send message: %w", err)
 						return
 					}
-					// nullify it
-					buffer = buffer[:]
 				}
 				// Send the end marker
 				if err = sttc.send(MessagePackMarker{
@@ -264,6 +262,7 @@ func (sttc *STTConnection) reader() (err error) {
 					// draining silence sent by writer to flush upstream model buffer
 					if msgPackStep.BufferedPCM == 0 {
 						// finaly received all the upstream buffered silence, we can exit to allow conn to close
+						close(sttc.readerChan) // close chan when exiting to inform user we are done
 						return
 					}
 					// else there is still buffered upstream we need to drain, simply discard and wait for next step
