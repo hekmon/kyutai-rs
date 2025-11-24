@@ -2,7 +2,7 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/hekmon/kyutai-rs.svg)](https://pkg.go.dev/github.com/hekmon/kyutai-rs)
 
-This library allows simple interfacing to the Kyutai production rust server for both TTS and STT.
+This library allows simple interfacing to the [Kyutai production rust server](https://github.com/kyutai-labs/delayed-streams-modeling) for both TTS and STT.
 
 The rust server uses websocket connections with [message pack](https://msgpack.org/) payloads. The purpose of this library is to abstract the websocket connection and message pack serialization to provide a simple API to send text to the TTS server or send audio to the STT server using only go channels.
 
