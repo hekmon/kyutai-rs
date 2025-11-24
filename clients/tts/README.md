@@ -27,7 +27,7 @@ export KYUTAI_TTS_APIKEY="public_token"
 ./tts -input "Hello! My name is Bob Kelso. Guess who has two thumbs and doesn't care?"
 ```
 
-### Cutomized form
+### Customized form
 
 Take the text from a text file, specify the target server web socket URL and specify the output file.
 
